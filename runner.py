@@ -202,8 +202,16 @@ def run_core(ticker, today, provider, model):
 
 # ── FULL MODE (TradingAgents 7-agent graph) ──────────────────────────────────
 def run_full(ticker, today, provider, model):
-    from tradingagents.graph.trading_graph import TradingAgentsGraph
-    from tradingagents.default_config import DEFAULT_CONFIG
+    try:
+        from tradingagents.graph.trading_graph import TradingAgentsGraph
+        from tradingagents.default_config import DEFAULT_CONFIG
+    except ImportError:
+        raise RuntimeError(
+            "Full mode requires the TradingAgents package, which is not installed.\n"
+            "Install it with:\n"
+            "  pip install git+https://github.com/TauricResearch/TradingAgents.git\n"
+            "Or use --solo or core (default) mode instead."
+        )
 
     config = DEFAULT_CONFIG.copy()
     if provider == "gemini":
