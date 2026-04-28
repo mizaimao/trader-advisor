@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import yfinance as yf
+import json
 from db import init_db, get_runs, get_status, set_status
 import os
 import signal
@@ -12,6 +13,10 @@ from plotly.subplots import make_subplots
 from news import days_until_earnings
 
 from news import days_until_earnings as _days_until_earnings_raw
+
+PROJECT_ROOT = os.path.expanduser("~/moose-trader")
+PYTHON_BIN = os.path.join(PROJECT_ROOT, ".venv/bin/python")
+RUNNER_PATH = os.path.join(PROJECT_ROOT, "runner.py")
 
 @st.cache_data(ttl=3600)
 def days_until_earnings_cached(ticker):
@@ -32,7 +37,7 @@ def insider_transactions_cached(ticker, days_back=90):
     from news import get_insider_transactions_finnhub
     return get_insider_transactions_finnhub(ticker, days_back=days_back)
 
-@st.cache_data(ttl=1800)  # 30 min cache (options change faster than insider data)
+@st.cache_data(ttl=1800)
 def options_summary_cached(ticker):
     from options import get_options_summary
     return get_options_summary(ticker)
@@ -40,7 +45,6 @@ def options_summary_cached(ticker):
 @st.cache_data(ttl=1800)
 def options_chain_cached(ticker, expiry):
     """Returns (calls_df, puts_df) for the given expiry as JSON-serializable dicts."""
-    import yfinance as yf
     tk = yf.Ticker(ticker)
     chain = tk.option_chain(expiry)
     return chain.calls.to_dict("records"), chain.puts.to_dict("records")
@@ -52,6 +56,16 @@ st.title("📈 Trading Analysis Dashboard")
 
 TICKERS_FILE = os.path.expanduser("~/.tradingagents/tickers.txt")
 os.makedirs(os.path.dirname(TICKERS_FILE), exist_ok=True)
+
+
+def _escape_dollars(text):
+    """Replace $ with HTML entity so Streamlit doesn't render LaTeX math.
+    Streamlit interprets $...$ as inline math; this breaks any text containing
+    dollar amounts (e.g. '$180 million', '$10.00 level')."""
+    if not text:
+        return text
+    return text.replace("$", "&#36;")
+
 
 def load_tickers():
     if not os.path.exists(TICKERS_FILE):
@@ -89,7 +103,6 @@ def insider_label(summary):
     date_match = re.search(r"latest:\s*(\d{4}-\d{2}-\d{2})", summary)
     date_str = ""
     if date_match:
-        # Convert YYYY-MM-DD → M/D
         from datetime import datetime
         try:
             d = datetime.strptime(date_match.group(1), "%Y-%m-%d")
@@ -177,7 +190,6 @@ def render_analysis(text):
         return
     import re
 
-    # Inject a custom font + readable styling
     st.markdown("""
         <style>
         .analysis-section {
@@ -205,7 +217,6 @@ def render_analysis(text):
         </style>
     """, unsafe_allow_html=True)
 
-    # Common section names the agent uses
     SECTIONS = [
         "Technical Outlook",
         "Fundamental Snapshot",
@@ -213,31 +224,31 @@ def render_analysis(text):
         "News Sentiment",
         "Insider Activity",
         "Sector & Macro Context",
+        "Counter-Thesis",
+        "Strongest Counter-Evidence",
+        "What the Initial Analyst Got Wrong",
+        "Key Disagreement",
         "Final Decision",
     ]
 
-    # Build a regex that splits on any of these headings
     pattern = r"(?:^|\n)\s*\**\s*(" + "|".join(re.escape(s) for s in SECTIONS) + r")\s*:?\**"
     parts = re.split(pattern, text)
 
-    # parts will be: [preamble, heading1, body1, heading2, body2, ...]
     if len(parts) < 3:
-        # Fallback: just show as one block
-        clean = text.replace("**", "").strip()
+        clean = _escape_dollars(text.replace("**", "").strip())
         st.markdown(f'<div class="analysis-section">{clean}</div>', unsafe_allow_html=True)
         return
 
-    # Skip preamble if empty
     i = 1 if not parts[0].strip() else 0
     if i == 0 and parts[0].strip():
-        st.markdown(f'<div class="analysis-section">{parts[0].strip()}</div>', unsafe_allow_html=True)
+        preamble = _escape_dollars(parts[0].strip())
+        st.markdown(f'<div class="analysis-section">{preamble}</div>', unsafe_allow_html=True)
         i = 1
 
     while i < len(parts) - 1:
         heading = parts[i].strip()
         body = parts[i + 1].strip() if i + 1 < len(parts) else ""
 
-        # Convert bullet markers into <ul><li>
         body_html = _format_body(body)
         st.markdown(
             f'<div class="analysis-section"><h3>{heading}</h3>{body_html}</div>',
@@ -249,6 +260,8 @@ def render_analysis(text):
 def _format_body(body):
     """Convert markdown-ish body text to HTML with bullets and bold."""
     import re
+    # Escape $ so Streamlit doesn't interpret as LaTeX math mode
+    body = body.replace("$", "&#36;")
     # Bold **text**
     body = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", body)
     # Strip any leftover ** or * that didn't get paired
@@ -276,6 +289,55 @@ def _format_body(body):
         out.append("</ul>")
     return "".join(out)
 
+
+def render_panel(extra_json):
+    """Render the 3-section breakdown for core mode runs.
+    extra_json is the JSON string from the runs.extra column."""
+    if not extra_json:
+        st.info("No panel breakdown available for this run.")
+        return
+    try:
+        extra = json.loads(extra_json)
+    except (json.JSONDecodeError, TypeError):
+        st.warning("Could not parse panel breakdown.")
+        return
+
+    initial_decision = extra.get("initial_decision") or "—"
+    synthesis_decision = extra.get("synthesis_decision") or "—"
+
+    # Show whether the panel changed its mind
+    if initial_decision != synthesis_decision:
+        st.markdown(
+            f"<div style='padding:10px 14px;background:#2a2a3e;border-left:4px solid #ffd966;"
+            f"border-radius:4px;margin-bottom:14px'>"
+            f"⚖️ <b>Panel changed its mind:</b> "
+            f"<span style='color:#888'>Initial: {initial_decision}</span> → "
+            f"<span style='color:#ffd966'>Synthesis: {synthesis_decision}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"<div style='padding:10px 14px;background:#1a2a1a;border-left:4px solid #00ff00;"
+            f"border-radius:4px;margin-bottom:14px'>"
+            f"✅ <b>Panel agreed:</b> {synthesis_decision}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Synthesis (the final answer) — open by default
+    with st.expander(f"🎯 Synthesis (final) — {synthesis_decision}", expanded=True):
+        render_analysis(extra.get("synthesis_analysis") or "")
+
+    # Initial analyst — collapsed
+    with st.expander(f"📋 Initial Analyst — {initial_decision}", expanded=False):
+        render_analysis(extra.get("initial_analysis") or "")
+
+    # Devil's advocate — collapsed
+    with st.expander("😈 Devil's Advocate", expanded=False):
+        render_analysis(extra.get("advocate_analysis") or "")
+
+
 def render_news(news_text):
     if not news_text:
         return
@@ -297,10 +359,10 @@ def render_news(news_text):
         _render_news_card(current)
 
 def _render_news_card(article):
-    title = article.get("title", "")
+    title = _escape_dollars(article.get("title", ""))
     date = article.get("date", "")
     link = article.get("link", "")
-    summary = article.get("summary", "").strip()
+    summary = _escape_dollars(article.get("summary", "").strip())
     st.markdown(
         f'''<div style="background:#1a1a2e;border-left:3px solid #2a6496;padding:12px 16px;margin:8px 0;border-radius:4px">
 <div style="font-size:15px;font-weight:600;color:#7ab8f5;margin-bottom:4px">{title}</div>
@@ -406,6 +468,8 @@ with st.expander("⚙️ Manage Tickers"):
 st.divider()
 
 # ── Build master ticker table ─────────────────────────────────────────────────
+TABLE_MODES = ["solo", "core", "full"]
+
 rows = []
 for ticker in managed_tickers:
     row = {"ticker": ticker}
@@ -417,7 +481,8 @@ for ticker in managed_tickers:
         row["insider"] = insider_summary_cached(ticker)
     except:
         row["insider"] = None
-    for mode in ["simple", "full"]:
+
+    for mode in TABLE_MODES:
         if not df.empty:
             match = df[(df["ticker"] == ticker) & (df["mode"] == mode)]
             if not match.empty:
@@ -453,14 +518,22 @@ if col_clrall.button("☐ Clear All"):
         st.session_state[f"chk_{t}"] = False
     st.rerun()
 
-header_cols = st.columns([0.5, 1.3, 1.0, 1.5, 1.7, 1.5, 1.0, 1.7, 1.5, 1.0, 0.6])
-for col, label in zip(header_cols, ["☐", "Ticker", "Earn", "Insider", "Simple", "Last Run", "Time", "Full", "Last Run", "Time", "→"]):
+# Layout: [check, ticker, earn, insider, solo, last, time, core, last, time, full, last, time, →]
+COL_WEIGHTS = [0.4, 1.1, 0.8, 1.4, 1.5, 1.3, 0.8, 1.5, 1.3, 0.8, 1.5, 1.3, 0.8, 0.5]
+HEADERS = ["☐", "Ticker", "Earn", "Insider",
+           "Solo", "Last", "Time",
+           "Core", "Last", "Time",
+           "Full", "Last", "Time",
+           "→"]
+
+header_cols = st.columns(COL_WEIGHTS)
+for col, label in zip(header_cols, HEADERS):
     col.markdown(f"**{label}**")
 
 for _, row in master_df.iterrows():
     ticker = row["ticker"]
     is_running = status["status"] == "running" and status["current"] == ticker
-    cols = st.columns([0.5, 1.3, 1.0, 1.5, 1.7, 1.5, 1.0, 1.7, 1.5, 1.0, 0.6])
+    cols = st.columns(COL_WEIGHTS)
 
     cols[0].checkbox("q", key=f"chk_{ticker}", label_visibility="hidden")
 
@@ -479,19 +552,22 @@ for _, row in master_df.iterrows():
         unsafe_allow_html=True
     )
 
-    sd = row["simple_decision"]
-    cols[4].markdown(f'<span style="{color_decision(sd)};padding:2px 6px;border-radius:4px">{sd}</span>', unsafe_allow_html=True)
-    cols[5].markdown(f'<span style="{time_color(row["simple_date"])}">{relative_time(row["simple_date"])}</span>', unsafe_allow_html=True)
-    sr = row["simple_runtime"]
-    cols[6].markdown(f'<span style="color:#888">{f"{sr}s" if sr else "—"}</span>', unsafe_allow_html=True)
+    # Solo
+    cols[4].markdown(f'<span style="{color_decision(row["solo_decision"])};padding:2px 6px;border-radius:4px">{row["solo_decision"]}</span>', unsafe_allow_html=True)
+    cols[5].markdown(f'<span style="{time_color(row["solo_date"])}">{relative_time(row["solo_date"])}</span>', unsafe_allow_html=True)
+    cols[6].markdown(f'<span style="color:#888">{f"{row["solo_runtime"]}s" if row["solo_runtime"] else "—"}</span>', unsafe_allow_html=True)
 
-    fd = row["full_decision"]
-    cols[7].markdown(f'<span style="{color_decision(fd)};padding:2px 6px;border-radius:4px">{fd}</span>', unsafe_allow_html=True)
-    cols[8].markdown(f'<span style="{time_color(row["full_date"])}">{relative_time(row["full_date"])}</span>', unsafe_allow_html=True)
-    fr = row["full_runtime"]
-    cols[9].markdown(f'<span style="color:#888">{f"{fr}s" if fr else "—"}</span>', unsafe_allow_html=True)
+    # Core
+    cols[7].markdown(f'<span style="{color_decision(row["core_decision"])};padding:2px 6px;border-radius:4px">{row["core_decision"]}</span>', unsafe_allow_html=True)
+    cols[8].markdown(f'<span style="{time_color(row["core_date"])}">{relative_time(row["core_date"])}</span>', unsafe_allow_html=True)
+    cols[9].markdown(f'<span style="color:#888">{f"{row["core_runtime"]}s" if row["core_runtime"] else "—"}</span>', unsafe_allow_html=True)
 
-    if cols[10].button("→", key=f"view_{ticker}"):
+    # Full
+    cols[10].markdown(f'<span style="{color_decision(row["full_decision"])};padding:2px 6px;border-radius:4px">{row["full_decision"]}</span>', unsafe_allow_html=True)
+    cols[11].markdown(f'<span style="{time_color(row["full_date"])}">{relative_time(row["full_date"])}</span>', unsafe_allow_html=True)
+    cols[12].markdown(f'<span style="color:#888">{f"{row["full_runtime"]}s" if row["full_runtime"] else "—"}</span>', unsafe_allow_html=True)
+
+    if cols[13].button("→", key=f"view_{ticker}"):
         st.session_state.selected_ticker = ticker
         st.session_state["scroll_to_deep_dive"] = True
         st.rerun()
@@ -503,11 +579,11 @@ st.subheader("Run Queue")
 
 queued = [t for t in managed_tickers if st.session_state.get(f"chk_{t}", False)]
 
-col_queue, col_mode, col_provider, col_btn = st.columns([3, 1, 1.2, 1])
+col_queue, col_mode, col_provider, col_btn = st.columns([3, 1.2, 1.2, 1])
 with col_queue:
     st.write(f"Queued: {', '.join(queued)}" if queued else "No tickers queued.")
 with col_mode:
-    run_mode = st.radio("Mode", ["simple", "full"], index=0)
+    run_mode = st.radio("Mode", ["core", "solo", "full"], index=0)
 with col_provider:
     run_provider = st.radio("Provider", ["ollama (ml39)", "gemini (cloud)"], index=0)
 with col_btn:
@@ -519,17 +595,20 @@ with col_btn:
         else:
             tickers_arg = ",".join(queued)
             provider_arg = "gemini" if "gemini" in run_provider else "ollama"
-            mode_args = ["--full"] if run_mode == "full" else []
+            mode_args = []
+            if run_mode == "full":
+                mode_args = ["--full"]
+            elif run_mode == "solo":
+                mode_args = ["--solo"]
             try:
                 os.makedirs(os.path.expanduser("~/.tradingagents"), exist_ok=True)
                 log_file = open(os.path.expanduser("~/.tradingagents/popen.log"), "w")
                 proc = subprocess.Popen(
-                    ["/home/frank/TradingAgents/.venv/bin/python",
-                    "/home/frank/TradingAgents/runner.py",
-                    "--tickers", tickers_arg,
-                    "--provider", provider_arg,
-                    *mode_args],
-                    cwd="/home/frank/TradingAgents",
+                    [PYTHON_BIN, RUNNER_PATH,
+                     "--tickers", tickers_arg,
+                     "--provider", provider_arg,
+                     *mode_args],
+                    cwd=PROJECT_ROOT,
                     env=os.environ.copy(),
                     stdout=log_file,
                     stderr=log_file
@@ -578,7 +657,6 @@ with st.expander("📅 Earnings Calendar (next 30 days)", expanded=False):
 ticker_pick = st.session_state.selected_ticker
 
 if ticker_pick and not df.empty:
-    # Anchor + auto-scroll
     if st.session_state.get("scroll_to_deep_dive"):
         st.session_state["scroll_to_deep_dive"] = False
         import streamlit.components.v1 as components
@@ -708,14 +786,21 @@ if ticker_pick and not df.empty:
 
             st.divider()
             st.subheader("Analysis")
-            render_analysis(row["analysis"])
+
+            # ── Mode-aware rendering ────────────────────────────────────────
+            run_mode = (row.get("mode") or "").lower()
+            extra_payload = row.get("extra")
+
+            if run_mode == "core" and extra_payload:
+                render_panel(extra_payload)
+            else:
+                render_analysis(row.get("analysis"))
 
             # ── Insider activity chart ────────────────────────────────────
             st.markdown("**Insider Activity (last 90 days)**")
             insider_data = insider_transactions_cached(ticker_pick, days_back=90)
             transactions = insider_data.get("transactions", [])
             if transactions:
-                import pandas as pd
                 tx_df = pd.DataFrame([
                     {
                         "date": tx.get("transactionDate"),
@@ -729,7 +814,6 @@ if ticker_pick and not df.empty:
                 ])
                 tx_df = tx_df[tx_df["date"].notna()]
                 tx_df["date"] = pd.to_datetime(tx_df["date"])
-                # Aggregate by date + direction
                 tx_df["direction"] = tx_df["value"].apply(lambda v: "Buy" if v > 0 else "Sell")
                 daily = tx_df.groupby([tx_df["date"].dt.date, "direction"])["value"].sum().reset_index()
                 daily.columns = ["date", "direction", "value"]
@@ -750,7 +834,6 @@ if ticker_pick and not df.empty:
                         name="Sell", marker_color="#a01a1a",
                         hovertemplate="%{x}<br>Sell: $%{y:,.0f}<extra></extra>"
                     ))
-                from datetime import datetime, timedelta
                 end_date = datetime.today()
                 start_date = end_date - timedelta(days=90)
 
@@ -767,7 +850,6 @@ if ticker_pick and not df.empty:
                 )
                 st.plotly_chart(fig_insider, use_container_width=True)
 
-                # Optionally show a small table
                 with st.expander("Transaction details"):
                     show_df = tx_df[["date", "name", "code", "shares", "price", "value"]].copy()
                     show_df["date"] = show_df["date"].dt.strftime("%Y-%m-%d")
@@ -831,7 +913,6 @@ if ticker_pick and not df.empty:
                     f"</div>", unsafe_allow_html=True
                 )
 
-                # ── Volume bar chart by strike (nearest expiry) ───────────
                 expiry = opts.get("near_expiry")
                 if expiry:
                     try:
@@ -839,12 +920,10 @@ if ticker_pick and not df.empty:
                         calls_df = pd.DataFrame(calls_records)
                         puts_df = pd.DataFrame(puts_records)
 
-                        # Get current spot for centering
                         spot_hist = yf.Ticker(ticker_pick).history(period="1d")
                         spot = float(spot_hist["Close"].iloc[-1]) if not spot_hist.empty else None
 
                         if not calls_df.empty and not puts_df.empty:
-                            # Filter to a reasonable range around spot
                             if spot:
                                 lo, hi = spot * 0.7, spot * 1.3
                                 calls_df = calls_df[(calls_df["strike"] >= lo) & (calls_df["strike"] <= hi)]
