@@ -1,0 +1,22 @@
+# Core
+python-dotenv
+streamlit
+pandas
+plotly
+yfinance
+requests
+
+# LLM
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langchain-google-genai
+
+# Telegram bot
+python-telegram-bot
+
+# Optional: TradingAgents (only needed for --full mode)
+# pip install -e /path/to/TradingAgents
+# or:
+# pip install git+https://github.com/TauricResearch/TradingAgents.git
