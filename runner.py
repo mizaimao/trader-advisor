@@ -19,6 +19,8 @@ from prompts import (
     PRICE_CONTEXT_TEMPLATE,
     ADVOCATE_SYSTEM, ADVOCATE_USER,
     SYNTHESIS_SYSTEM, SYNTHESIS_USER,
+    SENTIMENT_SECTION_TEMPLATE,
+    SENTIMENT_NONE
 )
 
 # ── CONTEXT BUILDER (shared by all modes) ─────────────────────────────────────
@@ -80,6 +82,16 @@ def fetch_context(ticker, today):
             sections.append(SECTOR_NONE)
     except Exception as e:
         sections.append(f"## Sector & Macro Context\nUnavailable: {e}")
+
+    try:
+        from sentiment import stocktwits_summary_text
+        sent_text = stocktwits_summary_text(ticker)
+        if sent_text:
+            sections.append(SENTIMENT_SECTION_TEMPLATE.format(summary=sent_text))
+        else:
+            sections.append(SENTIMENT_NONE)
+    except Exception as e:
+        sections.append(f"## Social Sentiment\nUnavailable: {e}")
 
     for indicator in ["macd", "rsi", "close_50_sma", "close_10_ema"]:
         try:
