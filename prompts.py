@@ -169,3 +169,9 @@ The shared context both saw:
 ---
 
 Now produce your synthesis."""
+
+SENTIMENT_SECTION_TEMPLATE = """## Social Sentiment (StockTwits)
+{summary}
+NOTE: StockTwits is biased toward retail day traders. Strong bullishness on small-caps often precedes pumps; strong bearishness on mega-caps is usually noise. Use as a momentum-confirmation signal, not a primary driver."""
+
+SENTIMENT_NONE = "## Social Sentiment (StockTwits)\nUnavailable."
