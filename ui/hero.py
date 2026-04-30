@@ -73,11 +73,15 @@ def render():
 
     html = (
 '<div class="hero-box">'
-'<div class="hero-title">📈 trader-advisor</div>'
+'<div class="hero-title">📈 Multi-agent stock analysis pipeline</div>'
+'<div style="font-size:13px;color:#888;margin-top:-6px;margin-bottom:14px;letter-spacing:0.3px;">'
+'<a href="https://github.com/mizaimao/trader-advisor" target="_blank" '
+'style="color:#7ab8f5;text-decoration:none;">trader-advisor</a> · public repo'
+'</div>'
 '<div class="hero-tagline">'
-'A multi-mode LLM-driven stock analysis dashboard. '
-'Three agentic pipelines — solo analyst, adversarial panel, multi-agent debate — '
-'fed by nine independent tools, with persisted decision history.'
+'Multi-mode stock analysis dashboard. '
+'Three pipelines — solo analyst, adversarial panel, seven-agent debate — '
+'fed by nine independent data sources, with every run journaled.'
 '</div>'
 '<div class="hero-features">'
 '<div class="hero-feature"><div class="hero-feature-label">Modes</div><div class="hero-feature-value">3</div><div class="hero-feature-sub">solo · core · full</div></div>'
@@ -89,14 +93,14 @@ def render():
 '<ul class="hero-bullets">'
 '<li><b>solo</b> — single LLM call with full context. <span class="meta">~30s · ~18K tokens</span></li>'
 '<li><b>core</b> <span class="meta">(default)</span> — three-agent adversarial panel. Initial Analyst forms a thesis, Devil\'s Advocate argues against it, Synthesizer weighs both sides. Flips ~30% of decisions. <span class="meta">~60s · ~55K tokens</span></li>'
-'<li><b>full</b> — 7-agent debate via TradingAgents. Most thorough, expensive, not available in this demo. <span class="meta">5–15 min · ~400K tokens</span></li>'
+'<li><b>full</b> — 7-agent debate via TradingAgents. Most thorough, most expensive. Disabled in this demo. <span class="meta">5–15 min · ~400K tokens</span></li>'
 '</ul>'
 '<div class="hero-section-heading">Highlights</div>'
 '<ul class="hero-bullets">'
 '<li><b>Multi-agent pipeline built from scratch</b> — no LangGraph, no CrewAI. Plain Python orchestration of LangChain calls, every prompt and branch visible.</li>'
-'<li><b>Nine tools the agents reason over</b> — price, fundamentals, options flow, insider activity, earnings, sector context, news, StockTwits, Reddit. Each toggleable in the Data Sources panel below.</li>'
+'<li><b>Nine data sources the agents reason over</b> — price, fundamentals, options flow, insider activity, earnings, sector context, news, StockTwits, Reddit. Each toggleable in the Data Sources panel below.</li>'
 '<li><b>Provider-agnostic LLM layer</b> — runs on cloud or locally. Supports <code>ollama</code> (local), <code>gemini</code>, <code>anthropic</code>, <code>openai</code>. One config switch, no prompt rewrites.</li>'
-'<li><b>Persistent decision history</b> — every run stored with full context, prompts, token cost, and runtime. A journal of how the agents have reasoned over time.</li>'
+'<li><b>Persistent decision history</b> — every run stored with full context, prompts, token cost, and runtime. A journal of how the agents reason over time.</li>'
 '</ul>'
 '<div class="hero-links">'
 '<a href="https://github.com/mizaimao/trader-advisor" target="_blank">GitHub →</a>'
@@ -123,11 +127,10 @@ def render():
         st.markdown(
             "Pre-loaded analyses are shown by default. To run a fresh analysis on any "
             "of the demo tickers, pick a provider and paste your key.\n\n"
-            "🔒 **Sandbox & privacy:** your session runs in an ephemeral sandbox — its own "
-            "isolated database that disappears when you close this tab. Other visitors "
-            "cannot see your runs, and you cannot see theirs. Your API key is held only "
-            "in browser session memory; it is never logged, stored, or sent anywhere except "
-            "the LLM provider you select."
+            "🔒 **Sandbox & privacy:** your session runs in an isolated database that "
+            "disappears when you close this tab. Your API key lives only in browser "
+            "session memory — never logged, stored, or sent anywhere except your chosen "
+            "LLM provider."
         )
 
         chosen_label = st.selectbox(
