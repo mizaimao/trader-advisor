@@ -5,6 +5,7 @@ requests>=2.31
 
 # Dashboard
 streamlit>=1.30
+streamlit-autorefresh>=1.0
 plotly>=5.18
 
 # Market data
@@ -13,7 +14,9 @@ finnhub-python>=2.4
 stockstats>=0.6
 
 # LLM
+google-genai>=0.3
 langchain>=0.3
+langchain-anthropic>=0.2
 langchain-core>=0.3
 langchain-community>=0.3
 langchain-openai>=0.2

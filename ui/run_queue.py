@@ -5,10 +5,54 @@ Prod mode: provider is selected here via radio (default Ollama).
 """
 import os
 import subprocess
+import threading
 import streamlit as st
 
+import db
 from .demo import DEMO_MODE
 from .providers import PROVIDERS, get_by_label
+
+
+# Process-global registry of in-flight runs across all Streamlit sessions.
+# Used in DEMO_MODE only, to cap concurrent subprocesses.
+#
+# Streamlit serves each session in its own thread, so reading + writing
+# this dict needs a lock. Otherwise two visitors who hit Run at the same
+# moment can both see len(_active_runs) < cap, both spawn, and exceed the
+# cap. The check, the spawn, and the register all happen inside _active_lock.
+_active_runs = {}  # session_id -> subprocess.Popen
+_active_lock = threading.Lock()
+
+
+def _reap_finished_locked():
+    """Drop entries whose subprocess has exited. Caller must hold _active_lock.
+
+    proc.poll() returns the exit code if the subprocess has terminated, or
+    None if it's still running. So this is the line that decrements the
+    registry — there is no separate event-driven removal, the pruning is
+    lazy and happens whenever a new spawn attempt comes through.
+    """
+    for sid, proc in list(_active_runs.items()):
+        if proc.poll() is not None:
+            _active_runs.pop(sid, None)
+
+
+def _try_spawn(sid, build_proc):
+    """Atomically reap, check capacity, spawn, register.
+
+    Returns the Popen on success, None if at capacity. Holding the lock
+    across subprocess.Popen is intentional — fork+exec on Linux is fast
+    and non-blocking, and keeping spawn inside the critical section is
+    what makes the cap actually enforceable.
+    """
+    cap = int(os.getenv("MAX_CONCURRENT_RUNS", "4"))
+    with _active_lock:
+        _reap_finished_locked()
+        if len(_active_runs) >= cap:
+            return None
+        proc = build_proc()
+        _active_runs[sid] = proc
+        return proc
 
 
 # Token estimate per mode (rough averages from observed runs)
@@ -57,8 +101,9 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
                 "Full mode runs a 7-agent debate via TradingAgents — analyst, researcher, "
                 "trader, risk manager, and others argue across multiple rounds. It produces "
                 "the most thorough analysis but uses **~400K tokens per ticker**, which would "
-                "burn through any free tier in a single run and isn't cost-effective for a "
-                "shared demo. The full pipeline runs in the production deployment; see GitHub for details."
+                "burn through any free tier in a single run. It's disabled in the demo so a "
+                "single click can't drain your API quota. The full pipeline runs in the "
+                "production deployment; see GitHub for details."
             )
 
     if clicked:
@@ -117,6 +162,11 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
         if url:
             env["OLLAMA_BASE_URL"] = url
 
+    # Hand the subprocess this session's DB and status paths so its
+    # writes land in the same place the dashboard reads from.
+    env["MOOSE_DB_PATH"] = db.db_path()
+    env["MOOSE_STATUS_FILE"] = db.status_file()
+
     tickers_arg = ",".join(queued)
     mode_args = []
     if run_mode == "full":
@@ -133,12 +183,30 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
     ]
 
     try:
-        os.makedirs(os.path.expanduser("~/.tradingagents"), exist_ok=True)
-        log_file = open(os.path.expanduser("~/.tradingagents/popen.log"), "w")
-        proc = subprocess.Popen(
-            cmd, cwd=project_root, env=env,
-            stdout=log_file, stderr=log_file,
-        )
+        log_dir = os.path.dirname(db.status_file())
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = open(os.path.join(log_dir, "popen.log"), "w")
+
+        def build_proc():
+            return subprocess.Popen(
+                cmd, cwd=project_root, env=env,
+                stdout=log_file, stderr=log_file,
+            )
+
+        if DEMO_MODE:
+            sid = st.session_state.get("session_id", "default")
+            proc = _try_spawn(sid, build_proc)
+            if proc is None:
+                log_file.close()
+                cap = os.getenv("MAX_CONCURRENT_RUNS", "4")
+                st.error(
+                    f"⏳ Demo at capacity ({cap} concurrent runs). "
+                    "Please try again in a minute."
+                )
+                return
+        else:
+            proc = build_proc()
+
         st.session_state["clear_queue"] = True
         st.success(f"Job started (PID {proc.pid}) — provider {provider_entry['label']}")
         st.rerun()
