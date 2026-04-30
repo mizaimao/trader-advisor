@@ -2,6 +2,7 @@
 Trading Dashboard — Streamlit orchestrator.
 
 Composes the UI from the `ui/` package. Each ui/* module owns one section.
+Set MOOSE_DEMO_MODE=true to enable demo/portfolio mode (hero, BYOK, hidden internals).
 """
 import os
 import pandas as pd
@@ -21,10 +22,12 @@ from ui import (
     dd_analysis,
     dd_insider,
     dd_options,
-    dd_reddit,
     dd_sentiment,
+    dd_reddit,
     dd_news,
+    hero,
 )
+from ui.demo import DEMO_MODE, DEMO_TICKERS
 
 
 # ── PATHS ─────────────────────────────────────────────────────────────────────
@@ -50,19 +53,25 @@ def save_tickers(tickers):
 
 # ── PAGE SETUP ────────────────────────────────────────────────────────────────
 init_db()
-st.set_page_config(page_title="Trading Dashboard", layout="wide")
-st.title("📈 Trading Analysis Dashboard")
+st.set_page_config(
+    page_title="moose-trader" if DEMO_MODE else "Trading Dashboard",
+    layout="wide",
+)
+
+if DEMO_MODE:
+    hero.render()
+else:
+    st.title("📈 Trading Analysis Dashboard")
 
 
 # ── DATA LOAD ─────────────────────────────────────────────────────────────────
-managed_tickers = load_tickers()
+managed_tickers = DEMO_TICKERS if DEMO_MODE else load_tickers()
 all_runs = get_runs(limit=1000)
 df = pd.DataFrame(all_runs) if all_runs else pd.DataFrame()
 status = get_status()
 
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
-# Clear queue flag must run before widgets render
 if st.session_state.get("clear_queue"):
     for t in managed_tickers:
         st.session_state[f"chk_{t}"] = False
@@ -73,34 +82,35 @@ if "selected_ticker" not in st.session_state:
 
 
 # ── TOP SECTIONS ──────────────────────────────────────────────────────────────
-status_banner.render(status)
+if not DEMO_MODE:
+    status_banner.render(status)
 
-st.divider()
+    st.divider()
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Tickers Tracked", len(managed_tickers))
-if not df.empty:
-    col2.metric("Total Runs", len(df))
-    col3.metric("Total Tokens", f"{df['total_tokens'].sum():,}")
-    col4.metric("Est. Cost (Sonnet)", f"${df['cost_sonnet'].sum():.4f}")
-else:
-    col2.metric("Total Runs", 0)
-    col3.metric("Total Tokens", 0)
-    col4.metric("Est. Cost (Sonnet)", "$0.00")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Tickers Tracked", len(managed_tickers))
+    if not df.empty:
+        col2.metric("Total Runs", len(df))
+        col3.metric("Total Tokens", f"{df['total_tokens'].sum():,}")
+        col4.metric("Est. Cost (Sonnet)", f"${df['cost_sonnet'].sum():.4f}")
+    else:
+        col2.metric("Total Runs", 0)
+        col3.metric("Total Tokens", 0)
+        col4.metric("Est. Cost (Sonnet)", "$0.00")
 
-st.divider()
+    st.divider()
 
-ticker_management.render(managed_tickers, save_tickers)
+    ticker_management.render(managed_tickers, save_tickers)
 
-st.divider()
+    st.divider()
 
 master_table.render(managed_tickers, df, status)
 
 st.divider()
 
-run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
-
-st.divider()
+if not DEMO_MODE or st.session_state.get("byok_gemini_key"):
+    run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
+    st.divider()
 
 earnings_calendar.render(managed_tickers)
 

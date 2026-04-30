@@ -32,8 +32,7 @@ def fetch_context(ticker, today):
 
     try:
         from prices import get_price_context
-        price_text = get_price_context(ticker)
-        sections.append(PRICE_CONTEXT_TEMPLATE.format(summary=price_text))
+        sections.append(PRICE_CONTEXT_TEMPLATE.format(summary=get_price_context(ticker)))
     except Exception as e:
         sections.append(f"## Price Data\nUnavailable: {e}")
 
@@ -58,76 +57,55 @@ def fetch_context(ticker, today):
     try:
         from news import insider_summary_text
         insider = insider_summary_text(ticker)
-        if insider:
-            sections.append(INSIDER_SECTION_TEMPLATE.format(summary=insider))
-        else:
-            sections.append(INSIDER_NONE)
+        sections.append(INSIDER_SECTION_TEMPLATE.format(summary=insider) if insider else INSIDER_NONE)
     except Exception as e:
         sections.append(f"## Insider Activity\nUnavailable: {e}")
 
     try:
         from options import options_summary_text
         opts = options_summary_text(ticker)
-        if opts:
-            sections.append(OPTIONS_SECTION_TEMPLATE.format(summary=opts))
-        else:
-            sections.append(OPTIONS_NONE)
+        sections.append(OPTIONS_SECTION_TEMPLATE.format(summary=opts) if opts else OPTIONS_NONE)
     except Exception as e:
         sections.append(f"## Options Activity\nUnavailable: {e}")
 
     try:
         from sector import sector_summary_text
         sector_text = sector_summary_text(ticker)
-        if sector_text:
-            sections.append(SECTOR_SECTION_TEMPLATE.format(summary=sector_text))
-        else:
-            sections.append(SECTOR_NONE)
+        sections.append(SECTOR_SECTION_TEMPLATE.format(summary=sector_text) if sector_text else SECTOR_NONE)
     except Exception as e:
         sections.append(f"## Sector & Macro Context\nUnavailable: {e}")
 
     try:
         from sentiment import stocktwits_summary_text
         sent_text = stocktwits_summary_text(ticker)
-        if sent_text:
-            sections.append(SENTIMENT_SECTION_TEMPLATE.format(summary=sent_text))
-        else:
-            sections.append(SENTIMENT_NONE)
+        sections.append(SENTIMENT_SECTION_TEMPLATE.format(summary=sent_text) if sent_text else SENTIMENT_NONE)
     except Exception as e:
         sections.append(f"## Social Sentiment\nUnavailable: {e}")
 
     try:
         from sentiment import reddit_summary_text
         reddit_text = reddit_summary_text(ticker)
-        if reddit_text:
-            sections.append(REDDIT_SECTION_TEMPLATE.format(summary=reddit_text))
-        else:
-            sections.append(REDDIT_NONE)
+        sections.append(REDDIT_SECTION_TEMPLATE.format(summary=reddit_text) if reddit_text else REDDIT_NONE)
     except Exception as e:
         sections.append(f"## Reddit Activity\nUnavailable: {e}")
 
-    # Indicators (in-house, replaces tradingagents.route_to_vendor)
     from indicators import get_indicator_text
     for indicator in ["macd", "rsi", "close_50_sma", "close_10_ema"]:
         try:
-            ind = get_indicator_text(ticker, indicator, today, days_back=30)
-            sections.append(f"## {indicator.upper()}\n{ind}")
+            sections.append(f"## {indicator.upper()}\n{get_indicator_text(ticker, indicator, today, days_back=30)}")
         except Exception as e:
             sections.append(f"## {indicator.upper()}\nUnavailable: {e}")
 
-    # Fundamentals (in-house)
     try:
         from fundamentals import get_fundamentals_text
-        fundamentals = get_fundamentals_text(ticker)
-        sections.append(f"## Fundamentals\n{fundamentals}")
+        sections.append(f"## Fundamentals\n{get_fundamentals_text(ticker)}")
     except Exception as e:
         sections.append(f"## Fundamentals\nUnavailable: {e}")
 
-    # News (in-house, was already partly available via news.py)
     try:
         from news import get_news_finnhub
         start = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
-        news = get_news_finnhub(ticker, start, today)
-        sections.append(f"## Recent News\n{news}")
+        sections.append(f"## Recent News\n{get_news_finnhub(ticker, start, today)}")
     except Exception as e:
         sections.append(f"## Recent News\nUnavailable: {e}")
 
@@ -138,17 +116,39 @@ def extract_decision(text):
     for line in reversed(text.splitlines()):
         if "FINAL DECISION:" in line.upper():
             decision = line.split(":")[-1].strip()
-            decision = decision.replace("**", "").replace("*", "").replace("_", "").strip()
-            return decision
+            return decision.replace("**", "").replace("*", "").replace("_", "").strip()
     return "UNKNOWN"
 
 
-def _make_llm(provider):
+def _make_llm(provider, model=None):
+    """Build an LLM client for the given provider/model.
+    
+    API keys are read from environment variables (GOOGLE_API_KEY,
+    ANTHROPIC_API_KEY, OPENAI_API_KEY). The dashboard sets these on the
+    subprocess env when spawning runner.py — they are NOT mutated in the
+    parent Streamlit process.
+    """
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.3)
+        return ChatGoogleGenerativeAI(model=model or GEMINI_MODEL, temperature=0.3)
+
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=model or "claude-sonnet-4-6", temperature=0.3)
+
+    if provider == "openai":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(model=model or "gpt-5-4-turbo", temperature=0.3)
+
+    # Default: Ollama (or compatible local OpenAI-API server)
     from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, api_key="ollama", temperature=0.3)
+    base_url = os.getenv("OLLAMA_BASE_URL", OLLAMA_BASE_URL)
+    return ChatOpenAI(
+        model=model or OLLAMA_MODEL,
+        base_url=base_url,
+        api_key="ollama",
+        temperature=0.3,
+    )
 
 
 def _normalize_content(content):
@@ -160,33 +160,31 @@ def _normalize_content(content):
     return content
 
 
-# ── SOLO MODE (single LLM call) ──────────────────────────────────────────────
+# ── SOLO ──────────────────────────────────────────────────────────────────────
 def run_solo(ticker, today, provider, model):
     from langchain_core.messages import SystemMessage, HumanMessage
-
-    llm = _make_llm(provider)
+    llm = _make_llm(provider, model)
     context = fetch_context(ticker, today)
 
     log_request(provider)
     response = llm.invoke([
         SystemMessage(content=SIMPLE_SYSTEM),
-        HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context))
+        HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context)),
     ])
     analysis = _normalize_content(response.content)
     return analysis, extract_decision(analysis), None
 
 
-# ── CORE MODE (3-call adversarial pipeline) ──────────────────────────────────
+# ── CORE ──────────────────────────────────────────────────────────────────────
 def run_core(ticker, today, provider, model):
     from langchain_core.messages import SystemMessage, HumanMessage
-
-    llm = _make_llm(provider)
+    llm = _make_llm(provider, model)
     context = fetch_context(ticker, today)
 
     log_request(provider)
     initial_resp = llm.invoke([
         SystemMessage(content=SIMPLE_SYSTEM),
-        HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context))
+        HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context)),
     ])
     initial_analysis = _normalize_content(initial_resp.content)
     initial_decision = extract_decision(initial_analysis)
@@ -196,9 +194,8 @@ def run_core(ticker, today, provider, model):
         SystemMessage(content=ADVOCATE_SYSTEM),
         HumanMessage(content=ADVOCATE_USER.format(
             ticker=ticker, today=today,
-            initial_analysis=initial_analysis,
-            context=context,
-        ))
+            initial_analysis=initial_analysis, context=context,
+        )),
     ])
     advocate_analysis = _normalize_content(advocate_resp.content)
 
@@ -208,9 +205,8 @@ def run_core(ticker, today, provider, model):
         HumanMessage(content=SYNTHESIS_USER.format(
             ticker=ticker, today=today,
             initial_analysis=initial_analysis,
-            advocate_analysis=advocate_analysis,
-            context=context,
-        ))
+            advocate_analysis=advocate_analysis, context=context,
+        )),
     ])
     synthesis_analysis = _normalize_content(synthesis_resp.content)
     synthesis_decision = extract_decision(synthesis_analysis)
@@ -225,7 +221,7 @@ def run_core(ticker, today, provider, model):
     return synthesis_analysis, synthesis_decision, extra
 
 
-# ── FULL MODE (TradingAgents 7-agent graph, optional) ────────────────────────
+# ── FULL ──────────────────────────────────────────────────────────────────────
 def run_full(ticker, today, provider, model):
     try:
         from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -268,18 +264,22 @@ def _resolve_mode():
 
 
 def _resolve_runner(mode):
-    return {
-        "solo": run_solo,
-        "core": run_core,
-        "full": run_full,
-    }[mode]
+    return {"solo": run_solo, "core": run_core, "full": run_full}[mode]
+
+
+def _resolve_model():
+    """Read --model CLI arg if present, otherwise None (resolves per-provider default)."""
+    if "--model" in sys.argv:
+        idx = sys.argv.index("--model")
+        return sys.argv[idx + 1]
+    return None
 
 
 def main():
     init_db()
 
     PROVIDER = get_provider()
-    MODEL = get_model(PROVIDER)
+    MODEL = _resolve_model() or get_model(PROVIDER)
     TICKERS = get_tickers()
     MODE = _resolve_mode()
     ANALYZE = _resolve_runner(MODE)
@@ -310,7 +310,12 @@ def main():
                 print(f"Runtime: {runtime}s | Tokens: {cb.total_tokens:,}")
                 print(f"Cost if Sonnet 4.6: ${cb.prompt_tokens/1e6*3 + cb.completion_tokens/1e6*15:.4f}")
         except Exception as e:
-            print(f"ERROR analyzing {ticker}: {e}")
+            err_msg = str(e)
+            # Surface key/auth errors more clearly
+            if "401" in err_msg or "API_KEY" in err_msg.upper() or "authentication" in err_msg.lower():
+                print(f"ERROR: Invalid API key for {PROVIDER}. {err_msg[:200]}")
+            else:
+                print(f"ERROR analyzing {ticker}: {err_msg}")
 
     set_status("idle")
 

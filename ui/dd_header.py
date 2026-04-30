@@ -3,7 +3,6 @@ import time
 from datetime import datetime, timedelta
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 
 def maybe_scroll():
@@ -12,7 +11,7 @@ def maybe_scroll():
         return
     st.session_state["scroll_to_deep_dive"] = False
     nonce = int(time.time() * 1000)
-    components.html(
+    st.html(
         f"""
         <script>
         // nonce: {nonce}
@@ -32,8 +31,7 @@ def maybe_scroll():
             if (tryScroll() || attempts++ > 20) clearInterval(interval);
         }}, 100);
         </script>
-        """,
-        height=0,
+        """
     )
 
 
