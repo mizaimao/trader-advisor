@@ -17,7 +17,7 @@ def get_stocktwits(ticker, limit=30):
     """Fetch latest messages for a ticker from StockTwits."""
     try:
         url = STOCKTWITS_URL.format(ticker=ticker.upper())
-        r = requests.get(url, timeout=10, headers={"User-Agent": "moose-trader/1.0"})
+        r = requests.get(url, timeout=10, headers={"User-Agent": "trader-advisor/1.0"})
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}"}
         data = r.json()
@@ -140,7 +140,7 @@ def get_apewisdom(filter_name="all-stocks", pages=2):
     for page in range(1, pages + 1):
         try:
             url = APEWISDOM_URL.format(filter=filter_name, page=page)
-            r = requests.get(url, timeout=10, headers={"User-Agent": "moose-trader/1.0"})
+            r = requests.get(url, timeout=10, headers={"User-Agent": "trader-advisor/1.0"})
             if r.status_code != 200:
                 break
             data = r.json()

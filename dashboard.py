@@ -2,7 +2,7 @@
 Trading Dashboard — Streamlit orchestrator.
 
 Composes the UI from the `ui/` package. Each ui/* module owns one section.
-Set MOOSE_DEMO_MODE=true to enable demo/portfolio mode (hero, BYOK, hidden internals).
+Set TRADER_ADVISOR_DEMO_MODE=true to enable demo/portfolio mode (hero, BYOK, hidden internals).
 """
 import os
 import sys
@@ -62,7 +62,7 @@ else:
 
 init_db()
 st.set_page_config(
-    page_title="moose-trader" if DEMO_MODE else "Trading Dashboard",
+    page_title="trader-advisor" if DEMO_MODE else "Trading Dashboard",
     layout="wide",
 )
 

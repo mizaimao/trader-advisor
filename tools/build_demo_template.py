@@ -5,9 +5,12 @@ Usage:
 
 What it does:
 - Reads ~/.tradingagents/trading.db (your local journal).
-- Picks the most recent run per (ticker, mode) for the demo ticker list.
-- Strips host/extra fields that might leak machine-specific info.
-- Writes demo_template.db at the repo root with is_demo_template=1 on every row.
+- For each demo ticker keeps at most ONE run per (mode, run_date).
+- When a (mode, run_date) has multiple candidates, prefers Gemini-powered
+  runs (model LIKE '%gemini%') over anything else; ties go to the latest id.
+- Tags every kept row with is_demo_template=1 and host='demo' (strips
+  machine-specific host info that could leak into the UI).
+- Writes demo_template.db at the repo root.
 
 Commit demo_template.db to ship pre-populated content to the HF Space.
 The dashboard copies this file into each new visitor's session DB so the
@@ -45,14 +48,30 @@ def main():
         cur.execute("ALTER TABLE runs ADD COLUMN is_demo_template INTEGER DEFAULT 0")
 
     placeholders = ",".join("?" * len(DEMO_TICKERS))
+    # Keep the "best" run per (ticker, mode, run_date):
+    #   - rank 0: model contains 'gemini' (case-insensitive)
+    #   - rank 1: anything else
+    #   - tie-break by latest id
+    # SQLite has had window functions since 3.25 (2018).
     cur.execute(
         f"""
         DELETE FROM runs
         WHERE ticker NOT IN ({placeholders})
            OR id NOT IN (
-               SELECT MAX(id) FROM runs
-               WHERE ticker IN ({placeholders})
-               GROUP BY ticker, mode
+               SELECT id FROM (
+                   SELECT id, ROW_NUMBER() OVER (
+                       PARTITION BY ticker, mode, run_date
+                       ORDER BY
+                           CASE
+                               WHEN LOWER(COALESCE(model, '')) LIKE '%gemini%' THEN 0
+                               ELSE 1
+                           END,
+                           id DESC
+                   ) AS rn
+                   FROM runs
+                   WHERE ticker IN ({placeholders})
+               )
+               WHERE rn = 1
            )
         """,
         DEMO_TICKERS + DEMO_TICKERS,

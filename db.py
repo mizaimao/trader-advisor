@@ -27,7 +27,7 @@ def db_path():
     p = getattr(_local, "db_path", None)
     if p:
         return p
-    return os.path.expanduser(os.getenv("MOOSE_DB_PATH", DEFAULT_DB_PATH))
+    return os.path.expanduser(os.getenv("TRADER_ADVISOR_DB_PATH", DEFAULT_DB_PATH))
 
 
 def status_file():
@@ -35,7 +35,7 @@ def status_file():
     p = getattr(_local, "status_file", None)
     if p:
         return p
-    return os.path.expanduser(os.getenv("MOOSE_STATUS_FILE", DEFAULT_STATUS_FILE))
+    return os.path.expanduser(os.getenv("TRADER_ADVISOR_STATUS_FILE", DEFAULT_STATUS_FILE))
 
 
 # Back-compat aliases (some external scripts may import these)
