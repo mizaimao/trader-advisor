@@ -175,3 +175,9 @@ SENTIMENT_SECTION_TEMPLATE = """## Social Sentiment (StockTwits)
 NOTE: StockTwits is biased toward retail day traders. Strong bullishness on small-caps often precedes pumps; strong bearishness on mega-caps is usually noise. Use as a momentum-confirmation signal, not a primary driver."""
 
 SENTIMENT_NONE = "## Social Sentiment (StockTwits)\nUnavailable."
+
+REDDIT_SECTION_TEMPLATE = """## Reddit Activity (ApeWisdom)
+{summary}
+NOTE: Reddit mention spikes often precede or coincide with retail-driven price moves on small-caps and meme stocks. For mega-caps the signal is noisier. A ticker NOT trending on Reddit during a price move suggests the move is institutional, not retail. Sudden surges in mention count (>100% vs prior 24h) warrant attention regardless of sentiment direction."""
+
+REDDIT_NONE = "## Reddit Activity (ApeWisdom)\nUnavailable."
