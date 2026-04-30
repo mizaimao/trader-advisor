@@ -14,6 +14,7 @@ from db import init_db, get_runs, get_status
 from ui import (
     status_banner,
     ticker_management,
+    data_sources,
     master_table,
     run_queue,
     earnings_calendar,
@@ -108,6 +109,10 @@ if not DEMO_MODE:
     st.divider()
 
 ticker_management.render(managed_tickers, save_tickers, demo_mode=DEMO_MODE)
+
+st.divider()
+
+data_sources.render()
 
 st.divider()
 

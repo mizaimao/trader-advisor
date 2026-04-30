@@ -56,25 +56,17 @@ EARNINGS_SECTION_TEMPLATE = """## Upcoming Earnings{warning}
 Next earnings in {days} days ({date}). EPS estimate: {eps_est}, Revenue estimate: {rev_est}.
 NOTE: Factor earnings proximity into your decision. Avoid strong BUY/SELL recommendations within 3 days of earnings due to event risk."""
 
-EARNINGS_NONE = "## Upcoming Earnings\nNo earnings scheduled in next 90 days."
-
 INSIDER_SECTION_TEMPLATE = """## Insider Activity
 {summary}
 NOTE: Insider data is reported with a lag (typically 2-5 days for filings, and the latest transaction may be weeks old). Treat this as background context, not a real-time signal. For short-term trades, weight recent transactions (<14 days) more heavily than older ones."""
-
-INSIDER_NONE = "## Insider Activity\nNo insider transactions in last 90 days."
 
 OPTIONS_SECTION_TEMPLATE = """## Options Activity
 {summary}
 NOTE: Options data reflects market positioning. Low P/C ratio (<0.7) suggests bullish sentiment; high (>1.0) suggests bearish/hedging. Elevated ATM IV signals expected near-term volatility (often around catalysts like earnings). Unusual volume can precede significant moves — investigate the catalyst."""
 
-OPTIONS_NONE = "## Options Activity\nOptions data unavailable."
-
 SECTOR_SECTION_TEMPLATE = """## Sector & Macro Context
 {summary}
 NOTE: A stock outperforming its sector ETF on multiple timeframes signals genuine strength specific to the company. Underperforming the sector while the sector itself is strong is a warning sign — money is rotating out of this name. Match the time horizon: 1d for entry timing, 5d/1mo for trend confirmation."""
-
-SECTOR_NONE = "## Sector & Macro Context\nSector data unavailable."
 
 PRICE_CONTEXT_TEMPLATE = """## Multi-Timeframe Price Context
 {summary}
@@ -174,10 +166,6 @@ SENTIMENT_SECTION_TEMPLATE = """## Social Sentiment (StockTwits)
 {summary}
 NOTE: StockTwits is biased toward retail day traders. Strong bullishness on small-caps often precedes pumps; strong bearishness on mega-caps is usually noise. Use as a momentum-confirmation signal, not a primary driver."""
 
-SENTIMENT_NONE = "## Social Sentiment (StockTwits)\nUnavailable."
-
 REDDIT_SECTION_TEMPLATE = """## Reddit Activity (ApeWisdom)
 {summary}
 NOTE: Reddit mention spikes often precede or coincide with retail-driven price moves on small-caps and meme stocks. For mega-caps the signal is noisier. A ticker NOT trending on Reddit during a price move suggests the move is institutional, not retail. Sudden surges in mention count (>100% vs prior 24h) warrant attention regardless of sentiment direction."""
-
-REDDIT_NONE = "## Reddit Activity (ApeWisdom)\nUnavailable."

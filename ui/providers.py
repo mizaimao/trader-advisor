@@ -31,6 +31,16 @@ PROVIDERS = [
         "key_help_url": "https://aistudio.google.com/apikey",
     },
     {
+        "label": "Claude Opus 4.7",
+        "provider": "anthropic",
+        "model": "claude-opus-4-7",
+        "needs_key": True,
+        "is_local": False,
+        "key_env": "ANTHROPIC_API_KEY",
+        "key_placeholder": "sk-ant-...",
+        "key_help_url": "https://console.anthropic.com/settings/keys",
+    },
+    {
         "label": "Claude Sonnet 4.6",
         "provider": "anthropic",
         "model": "claude-sonnet-4-6",
@@ -49,6 +59,16 @@ PROVIDERS = [
         "key_env": "ANTHROPIC_API_KEY",
         "key_placeholder": "sk-ant-...",
         "key_help_url": "https://console.anthropic.com/settings/keys",
+    },
+    {
+        "label": "OpenAI GPT-5.5",
+        "provider": "openai",
+        "model": "gpt-5-5",
+        "needs_key": True,
+        "is_local": False,
+        "key_env": "OPENAI_API_KEY",
+        "key_placeholder": "sk-...",
+        "key_help_url": "https://platform.openai.com/api-keys",
     },
     {
         "label": "OpenAI GPT-5.4",
