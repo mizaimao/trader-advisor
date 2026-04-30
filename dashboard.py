@@ -5,6 +5,7 @@ Composes the UI from the `ui/` package. Each ui/* module owns one section.
 Set MOOSE_DEMO_MODE=true to enable demo/portfolio mode (hero, BYOK, hidden internals).
 """
 import os
+import sys
 import pandas as pd
 import streamlit as st
 
@@ -29,14 +30,14 @@ from ui import (
 )
 from ui.demo import DEMO_MODE, DEMO_TICKERS
 
+from streamlit_autorefresh import st_autorefresh
 
-# ── PATHS ─────────────────────────────────────────────────────────────────────
-PROJECT_ROOT = os.path.expanduser("~/moose-trader")
-PYTHON_BIN = os.path.join(PROJECT_ROOT, ".venv/bin/python")
+
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PYTHON_BIN = sys.executable
 RUNNER_PATH = os.path.join(PROJECT_ROOT, "runner.py")
 
 TICKERS_FILE = os.path.expanduser("~/.tradingagents/tickers.txt")
-os.makedirs(os.path.dirname(TICKERS_FILE), exist_ok=True)
 
 
 def load_tickers():
@@ -47,11 +48,18 @@ def load_tickers():
 
 
 def save_tickers(tickers):
+    os.makedirs(os.path.dirname(TICKERS_FILE), exist_ok=True)
     with open(TICKERS_FILE, "w") as f:
         f.write("\n".join(tickers))
 
 
-# ── PAGE SETUP ────────────────────────────────────────────────────────────────
+# Demo mode: bind a per-session ephemeral DB before the first DB call.
+if DEMO_MODE:
+    from ui.demo_session import bootstrap as _bootstrap_demo_session
+    _bootstrap_demo_session()
+else:
+    os.makedirs(os.path.dirname(TICKERS_FILE), exist_ok=True)
+
 init_db()
 st.set_page_config(
     page_title="moose-trader" if DEMO_MODE else "Trading Dashboard",
@@ -64,14 +72,15 @@ else:
     st.title("📈 Trading Analysis Dashboard")
 
 
-# ── DATA LOAD ─────────────────────────────────────────────────────────────────
 managed_tickers = DEMO_TICKERS if DEMO_MODE else load_tickers()
 all_runs = get_runs(limit=1000)
 df = pd.DataFrame(all_runs) if all_runs else pd.DataFrame()
 status = get_status()
 
+if status["status"] == "running":
+    st_autorefresh(interval=3000, key="job_poll")
 
-# ── SESSION STATE ─────────────────────────────────────────────────────────────
+
 if st.session_state.get("clear_queue"):
     for t in managed_tickers:
         st.session_state[f"chk_{t}"] = False
@@ -80,11 +89,9 @@ if st.session_state.get("clear_queue"):
 if "selected_ticker" not in st.session_state:
     st.session_state.selected_ticker = managed_tickers[0] if managed_tickers else None
 
+status_banner.render(status, demo_mode=DEMO_MODE)
 
-# ── TOP SECTIONS ──────────────────────────────────────────────────────────────
 if not DEMO_MODE:
-    status_banner.render(status)
-
     st.divider()
 
     col1, col2, col3, col4 = st.columns(4)
@@ -100,22 +107,21 @@ if not DEMO_MODE:
 
     st.divider()
 
-    ticker_management.render(managed_tickers, save_tickers)
+ticker_management.render(managed_tickers, save_tickers, demo_mode=DEMO_MODE)
 
-    st.divider()
+st.divider()
 
 master_table.render(managed_tickers, df, status)
 
 st.divider()
 
-if not DEMO_MODE or st.session_state.get("byok_gemini_key"):
-    run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
-    st.divider()
+run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
+
+st.divider()
 
 earnings_calendar.render(managed_tickers)
 
 
-# ── DEEP DIVE ─────────────────────────────────────────────────────────────────
 ticker_pick = st.session_state.selected_ticker
 
 if ticker_pick and not df.empty:
@@ -130,8 +136,15 @@ if ticker_pick and not df.empty:
         if row is not None:
             from ui.formatters import color_decision
             st.markdown("**Run History**")
-            history = ticker_runs[["run_date", "mode", "decision", "total_tokens",
-                                   "cost_sonnet", "runtime_seconds", "model"]]
+            history_cols = ["run_date", "mode", "decision", "total_tokens",
+                            "cost_sonnet", "runtime_seconds", "model"]
+            if DEMO_MODE and "is_demo_template" in ticker_runs.columns:
+                ticker_runs = ticker_runs.copy()
+                ticker_runs["source"] = ticker_runs["is_demo_template"].apply(
+                    lambda v: "📦 Demo" if v else "🟢 Yours"
+                )
+                history_cols = ["source"] + history_cols
+            history = ticker_runs[history_cols]
             st.dataframe(
                 history.style.map(color_decision, subset=["decision"]),
                 width="stretch",

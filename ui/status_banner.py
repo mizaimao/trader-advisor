@@ -1,4 +1,8 @@
-"""Top-of-page job status banner."""
+"""Top-of-page job status banner.
+
+In prod mode: full banner with kill button, PID, internal labels.
+In demo mode: progress-only banner, no kill control, no internals.
+"""
 import os
 import signal
 import streamlit as st
@@ -6,15 +10,35 @@ import streamlit as st
 from db import set_status
 
 
-def render(status):
-    if status["status"] == "running":
-        completed = status.get("completed", 0)
-        total = status.get("total", 0)
-        current = status.get("current", "—")
-        done = status.get("tickers", [])[:completed]
-        remaining = status.get("tickers", [])[completed + 1:]
+def render(status, demo_mode=False):
+    if status["status"] != "running":
+        if not demo_mode:
+            st.success("✅ Idle — no jobs running")
+        return
+
+    completed = status.get("completed", 0)
+    total = status.get("total", 0)
+    current = status.get("current", "—")
+    tickers = status.get("tickers", [])
+    done = tickers[:completed]
+    remaining = tickers[completed + 1:]
+    mode = status.get("mode", "").upper()
+
+    if demo_mode:
+        # Clean progress banner, no internals
+        progress_pct = (completed / total) if total else 0
+        st.info(f"⚙️ **Analyzing {current}** — ticker {completed + 1} of {total}  ·  mode: **{mode}**")
+        st.progress(progress_pct, text=f"{completed} of {total} complete")
+        if done:
+            st.caption(f"Completed: {', '.join(done)}")
+        if remaining:
+            st.caption(f"Remaining: {', '.join(remaining)}")
+        # Auto-refresh hint
+        if st.button("🔄 Refresh", key="demo_refresh_btn"):
+            st.rerun()
+    else:
         st.warning(
-            f"⚙️ **[{status.get('mode','').upper()}] Running** — "
+            f"⚙️ **[{mode}] Running** — "
             f"**{current}** ({completed + 1} of {total}) | "
             f"Done: {', '.join(done) if done else 'none'} | "
             f"Remaining: {', '.join(remaining) if remaining else 'none'} | "
@@ -40,5 +64,3 @@ def render(status):
                 set_status("idle")
                 st.success("Status forcibly cleared.")
                 st.rerun()
-    else:
-        st.success("✅ Idle — no jobs running")

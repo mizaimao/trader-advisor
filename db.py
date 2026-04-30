@@ -1,14 +1,52 @@
 import sqlite3
 import os
 import json
+import threading
 from datetime import datetime
 
-DB_PATH = os.path.expanduser("~/.tradingagents/trading.db")
-STATUS_FILE = os.path.expanduser("~/.tradingagents/run_status.json")
+DEFAULT_DB_PATH = "~/.tradingagents/trading.db"
+DEFAULT_STATUS_FILE = "~/.tradingagents/run_status.json"
+
+_local = threading.local()
+
+
+def set_session_paths(db_path, status_file):
+    """Bind per-thread DB and status paths.
+
+    Used by the Streamlit dashboard in demo mode so each browser session
+    gets its own ephemeral DB without clobbering siblings via os.environ.
+    Streamlit serves each session in its own thread, so threading.local
+    is the right scope.
+    """
+    _local.db_path = db_path
+    _local.status_file = status_file
+
+
+def db_path():
+    """Effective DB path. Thread-local override > env var > default."""
+    p = getattr(_local, "db_path", None)
+    if p:
+        return p
+    return os.path.expanduser(os.getenv("MOOSE_DB_PATH", DEFAULT_DB_PATH))
+
+
+def status_file():
+    """Effective run-status file. Thread-local override > env var > default."""
+    p = getattr(_local, "status_file", None)
+    if p:
+        return p
+    return os.path.expanduser(os.getenv("MOOSE_STATUS_FILE", DEFAULT_STATUS_FILE))
+
+
+# Back-compat aliases (some external scripts may import these)
+DB_PATH = os.path.expanduser(DEFAULT_DB_PATH)
+STATUS_FILE = os.path.expanduser(DEFAULT_STATUS_FILE)
+
 
 def init_db():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    path = db_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS runs (
@@ -40,6 +78,8 @@ def init_db():
         cur.execute("ALTER TABLE runs ADD COLUMN extra TEXT")
     if "cost_openai" not in cols:
         cur.execute("ALTER TABLE runs ADD COLUMN cost_openai REAL")
+    if "is_demo_template" not in cols:
+        cur.execute("ALTER TABLE runs ADD COLUMN is_demo_template INTEGER DEFAULT 0")
 
     # Migrate simple → solo
     cur.execute("UPDATE runs SET mode='solo' WHERE mode='simple'")
@@ -49,7 +89,8 @@ def init_db():
 
 
 def save_run(ticker, run_date, decision, analysis, prompt_tokens, completion_tokens,
-             mode="core", runtime_seconds=0, model="unknown", host="unknown", extra=None):
+             mode="core", runtime_seconds=0, model="unknown", host="unknown", extra=None,
+             is_demo_template=False):
     total = prompt_tokens + completion_tokens
     cost_sonnet = prompt_tokens / 1e6 * 3 + completion_tokens / 1e6 * 15        # Sonnet 4.6
     cost_opus = prompt_tokens / 1e6 * 5 + completion_tokens / 1e6 * 25          # Opus 4.6
@@ -57,27 +98,28 @@ def save_run(ticker, run_date, decision, analysis, prompt_tokens, completion_tok
     cost_openai = prompt_tokens / 1e6 * 2.5 + completion_tokens / 1e6 * 15      # GPT-5.4
     extra_json = json.dumps(extra) if extra else None
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path())
     conn.execute("""
         INSERT INTO runs (
             ticker, run_date, decision, analysis,
             prompt_tokens, completion_tokens, total_tokens,
             cost_sonnet, cost_opus, cost_gemini, cost_openai,
-            mode, runtime_seconds, model, host, extra
+            mode, runtime_seconds, model, host, extra, is_demo_template
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         ticker, run_date, decision, analysis,
         prompt_tokens, completion_tokens, total,
         cost_sonnet, cost_opus, cost_gemini, cost_openai,
         mode, runtime_seconds, model, host, extra_json,
+        1 if is_demo_template else 0,
     ))
     conn.commit()
     conn.close()
 
 
 def get_runs(ticker=None, limit=50):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path())
     conn.row_factory = sqlite3.Row
     if ticker:
         rows = conn.execute(
@@ -94,7 +136,7 @@ def get_runs(ticker=None, limit=50):
 
 
 def get_latest(ticker):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path())
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM runs WHERE ticker=? ORDER BY run_date DESC LIMIT 1",
@@ -119,15 +161,18 @@ def set_status(status: str, tickers: list = None, current: str = None,
         "pid": pid or existing.get("pid"),
         "started_at": started_at
     }
-    with open(STATUS_FILE, "w") as f:
+    path = status_file()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
         json.dump(data, f)
 
 
 def get_status():
-    if not os.path.exists(STATUS_FILE):
+    path = status_file()
+    if not os.path.exists(path):
         return {"status": "idle", "tickers": [], "current": "", "mode": ""}
     try:
-        with open(STATUS_FILE) as f:
+        with open(path) as f:
             data = json.load(f)
     except:
         return {"status": "idle", "tickers": [], "current": "", "mode": ""}
@@ -137,7 +182,7 @@ def get_status():
         pid = data.get("pid")
         if pid and not _pid_alive(pid):
             data["status"] = "idle"
-            with open(STATUS_FILE, "w") as f:
+            with open(path, "w") as f:
                 json.dump(data, f)
     return data
 

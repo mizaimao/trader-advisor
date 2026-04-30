@@ -121,10 +121,13 @@ def render():
     # Try it yourself — provider dropdown + key
     with st.expander("🔑 Try it yourself (bring your own key)", expanded=False):
         st.markdown(
-            "This demo is read-only by default. To run a fresh analysis, pick a provider and paste your key.\n\n"
-            "🔒 **Privacy:** keys live only in your browser session — never stored, logged, or sent anywhere "
-            "except the LLM provider you select. They're gone the moment you close this tab. "
-            "Each user's session is independent; your key is never shared with other visitors."
+            "Pre-loaded analyses are shown by default. To run a fresh analysis on any "
+            "of the demo tickers, pick a provider and paste your key.\n\n"
+            "🔒 **Sandbox & privacy:** your session runs in an ephemeral sandbox — its own "
+            "isolated database that disappears when you close this tab. Other visitors "
+            "cannot see your runs, and you cannot see theirs. Your API key is held only "
+            "in browser session memory; it is never logged, stored, or sent anywhere except "
+            "the LLM provider you select."
         )
 
         chosen_label = st.selectbox(

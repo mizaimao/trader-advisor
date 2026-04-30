@@ -1,4 +1,15 @@
-"""Streamlit cached wrappers around data sources."""
+"""Streamlit cached wrappers around data sources.
+
+Every wrapper here caches an *upstream API call* (finnhub, yfinance,
+stocktwits, apewisdom). The result is the same for every visitor, so a
+process-global @st.cache_data cache is correct and desirable — it saves
+rate-limit hits across sessions.
+
+DO NOT add a wrapper that reads from trading.db here. In demo mode each
+visitor has their own DB (see ui/demo_session.py); a process-global cache
+over per-session DB reads will leak rows between visitors. If you need a
+DB-read cache, key it on st.session_state.session_id explicitly.
+"""
 import streamlit as st
 import yfinance as yf
 

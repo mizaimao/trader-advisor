@@ -40,9 +40,11 @@ For `full` mode, also install TradingAgents:
 
 ## Usage
 
+Tickers are passed as a single comma-separated argument (no spaces).
+
 Default (core, 3-call adversarial panel):
 
-    python runner.py --tickers NVDA AMD
+    python runner.py --tickers NVDA,AMD
 
 Solo (single fast call):
 
