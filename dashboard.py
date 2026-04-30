@@ -21,6 +21,7 @@ from ui import (
     dd_analysis,
     dd_insider,
     dd_options,
+    dd_reddit,
     dd_sentiment,
     dd_news,
 )
@@ -145,6 +146,9 @@ if ticker_pick and not df.empty:
 
             st.divider()
             dd_sentiment.render(ticker_pick)
+
+            st.divider()
+            dd_reddit.render(ticker_pick)
 
             st.divider()
             dd_news.render(ticker_pick)

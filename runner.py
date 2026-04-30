@@ -21,6 +21,8 @@ from prompts import (
     SYNTHESIS_SYSTEM, SYNTHESIS_USER,
     SENTIMENT_SECTION_TEMPLATE,
     SENTIMENT_NONE,
+    REDDIT_SECTION_TEMPLATE,
+    REDDIT_NONE,
 )
 
 
@@ -92,6 +94,16 @@ def fetch_context(ticker, today):
             sections.append(SENTIMENT_NONE)
     except Exception as e:
         sections.append(f"## Social Sentiment\nUnavailable: {e}")
+
+    try:
+        from sentiment import reddit_summary_text
+        reddit_text = reddit_summary_text(ticker)
+        if reddit_text:
+            sections.append(REDDIT_SECTION_TEMPLATE.format(summary=reddit_text))
+        else:
+            sections.append(REDDIT_NONE)
+    except Exception as e:
+        sections.append(f"## Reddit Activity\nUnavailable: {e}")
 
     # Indicators (in-house, replaces tradingagents.route_to_vendor)
     from indicators import get_indicator_text

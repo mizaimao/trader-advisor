@@ -9,7 +9,7 @@ from news import (
     get_insider_transactions_finnhub,
 )
 from options import get_options_summary
-from sentiment import stocktwits_summary
+from sentiment import stocktwits_summary, reddit_summary
 
 
 @st.cache_data(ttl=3600)
@@ -48,3 +48,8 @@ def options_chain_cached(ticker, expiry):
     tk = yf.Ticker(ticker)
     chain = tk.option_chain(expiry)
     return chain.calls.to_dict("records"), chain.puts.to_dict("records")
+
+@st.cache_data(ttl=900)
+def reddit_cached(ticker):
+    from sentiment import reddit_summary
+    return reddit_summary(ticker)
