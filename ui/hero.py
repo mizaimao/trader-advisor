@@ -149,13 +149,43 @@ def render():
             if st.session_state.get("byok_api_key"):
                 st.success(f"✓ Key loaded for {entry['label']}. Scroll down to the Run Queue.")
         else:
-            # Local provider (Ollama) — URL field instead of key field
+            # Local provider (Ollama) — URL + auto-detected model selector
             st.text_input(
                 f"{entry['label']} server URL",
                 key="byok_ollama_url",
                 placeholder=entry["url_placeholder"],
                 help="If you run your own Ollama server, paste the URL here. Otherwise leave blank.",
             )
+            url = (st.session_state.get("byok_ollama_url") or "").strip()
+            if url:
+                from .ollama_probe import probe_models
+                with st.spinner("Probing server for installed models..."):
+                    models, err = probe_models(url)
+                if models:
+                    # Keep the manual fallback key out of the way so run_queue
+                    # knows the auto-detect path won.
+                    st.session_state.pop("byok_ollama_model_manual", None)
+                    st.selectbox(
+                        "Model",
+                        models,
+                        key="byok_ollama_model_select",
+                        help="Auto-detected from /api/tags on this server.",
+                    )
+                    st.success(f"✓ Found {len(models)} model(s) on this server.")
+                else:
+                    st.session_state.pop("byok_ollama_model_select", None)
+                    st.warning(
+                        f"⚠️ Couldn't auto-detect models ({err}). "
+                        "Type a model name manually:"
+                    )
+                    st.text_input(
+                        "Model",
+                        value=st.session_state.get(
+                            "byok_ollama_model_manual", entry["model"]
+                        ),
+                        key="byok_ollama_model_manual",
+                        help="Must match what's installed on the server (`ollama list`).",
+                    )
             st.info(
                 "Note: this demo's runtime cannot reach a localhost Ollama server on your machine. "
                 "This option is mainly useful if you have a publicly-reachable Ollama endpoint."

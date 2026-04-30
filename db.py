@@ -93,9 +93,9 @@ def save_run(ticker, run_date, decision, analysis, prompt_tokens, completion_tok
              is_demo_template=False):
     total = prompt_tokens + completion_tokens
     cost_sonnet = prompt_tokens / 1e6 * 3 + completion_tokens / 1e6 * 15        # Sonnet 4.6
-    cost_opus = prompt_tokens / 1e6 * 5 + completion_tokens / 1e6 * 25          # Opus 4.6
+    cost_opus = prompt_tokens / 1e6 * 5 + completion_tokens / 1e6 * 25          # Opus 4.7
     cost_gemini = prompt_tokens / 1e6 * 2 + completion_tokens / 1e6 * 12        # Gemini 3.1 Pro
-    cost_openai = prompt_tokens / 1e6 * 2.5 + completion_tokens / 1e6 * 15      # GPT-5.4
+    cost_openai = prompt_tokens / 1e6 * 5 + completion_tokens / 1e6 * 30        # GPT-5.5
     extra_json = json.dumps(extra) if extra else None
 
     conn = sqlite3.connect(db_path())

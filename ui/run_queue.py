@@ -3,14 +3,16 @@
 Demo mode: provider is selected via session_state from hero's BYOK widget.
 Prod mode: provider is selected here via radio (default Ollama).
 """
+import json
 import os
 import subprocess
 import threading
 import streamlit as st
 
 import db
+from .data_sources import disabled_sources
 from .demo import DEMO_MODE
-from .providers import PROVIDERS, get_by_label
+from .providers import PROVIDERS, PROVIDER_LABELS, get_by_label
 
 
 # Process-global registry of in-flight runs across all Streamlit sessions.
@@ -121,15 +123,44 @@ def _resolve_provider(demo_mode):
         # Fallback to Gemini Flash placeholder so the UI doesn't break before user picks
         return get_by_label("Gemini Flash")
 
-    # Prod mode: simple radio between Ollama (default) and Gemini cloud
-    chosen = st.radio(
-        "Provider",
-        ["Ollama (local)", "Gemini Flash"],
-        index=0,
-        horizontal=True,
-        key="prod_provider_radio",
+    # Prod: full provider list. Keys come from .env (no BYOK form here).
+    # Default lands on Ollama (local) — matches the original two-option radio.
+    default_label = "Ollama (local)"
+    default_idx = (
+        PROVIDER_LABELS.index(default_label)
+        if default_label in PROVIDER_LABELS else 0
     )
-    return get_by_label(chosen)
+    chosen = st.selectbox(
+        "Provider",
+        PROVIDER_LABELS,
+        index=default_idx,
+        key="prod_provider_select",
+    )
+    entry = get_by_label(chosen)
+
+    # When Ollama is picked in prod, auto-detect installed models from the
+    # OLLAMA_BASE_URL env var so the user can switch models without editing
+    # providers.py. Falls back silently if the probe can't reach the server.
+    if entry and entry["is_local"]:
+        url = os.getenv("OLLAMA_BASE_URL")
+        if url:
+            from .ollama_probe import probe_models
+            models, err = probe_models(url)
+            if models:
+                # Default to whatever providers.py has hardcoded if it's
+                # actually installed; otherwise pick the first model.
+                default_model = entry["model"] if entry["model"] in models else models[0]
+                model_idx = models.index(default_model)
+                chosen_model = st.selectbox(
+                    "Model",
+                    models,
+                    index=model_idx,
+                    key="prod_ollama_model",
+                    help=f"Auto-detected from OLLAMA_BASE_URL ({len(models)} installed).",
+                )
+                entry = {**entry, "model": chosen_model}
+
+    return entry
 
 
 def _handle_click(queued, run_mode, provider_entry, status, project_root, python_bin, runner_path):
@@ -158,14 +189,29 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
             env[provider_entry["key_env"]] = key
 
     if provider_entry["is_local"]:
-        url = st.session_state.get("byok_ollama_url", "")
+        url = (st.session_state.get("byok_ollama_url") or "").strip()
         if url:
-            env["OLLAMA_BASE_URL"] = url
+            from .ollama_probe import normalize_for_openai
+            env["OLLAMA_BASE_URL"] = normalize_for_openai(url)
+        # Override the hardcoded default with the user's choice (auto-detected
+        # selectbox if the probe succeeded, manual text field if it didn't).
+        user_model = (
+            st.session_state.get("byok_ollama_model_select")
+            or st.session_state.get("byok_ollama_model_manual")
+        )
+        if user_model:
+            provider_entry = {**provider_entry, "model": user_model}
 
     # Hand the subprocess this session's DB and status paths so its
     # writes land in the same place the dashboard reads from.
     env["TRADER_ADVISOR_DB_PATH"] = db.db_path()
     env["TRADER_ADVISOR_STATUS_FILE"] = db.status_file()
+
+    # Disabled toggleable sources from the data-sources panel. Always-on
+    # sources (price, indicators, fundamentals) cannot be disabled.
+    disabled = sorted(disabled_sources())
+    if disabled:
+        env["TRADER_ADVISOR_DISABLED_SOURCES"] = json.dumps(disabled)
 
     tickers_arg = ",".join(queued)
     mode_args = []

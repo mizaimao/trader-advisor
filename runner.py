@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -12,102 +13,135 @@ from config import (
 )
 from prompts import (
     SIMPLE_SYSTEM, SIMPLE_USER,
-    EARNINGS_SECTION_TEMPLATE, EARNINGS_NONE,
-    INSIDER_SECTION_TEMPLATE, INSIDER_NONE,
-    OPTIONS_SECTION_TEMPLATE, OPTIONS_NONE,
-    SECTOR_SECTION_TEMPLATE, SECTOR_NONE,
+    EARNINGS_SECTION_TEMPLATE,
+    INSIDER_SECTION_TEMPLATE,
+    OPTIONS_SECTION_TEMPLATE,
+    SECTOR_SECTION_TEMPLATE,
     PRICE_CONTEXT_TEMPLATE,
     ADVOCATE_SYSTEM, ADVOCATE_USER,
     SYNTHESIS_SYSTEM, SYNTHESIS_USER,
     SENTIMENT_SECTION_TEMPLATE,
-    SENTIMENT_NONE,
     REDDIT_SECTION_TEMPLATE,
-    REDDIT_NONE,
 )
 
 
 # ── CONTEXT BUILDER (shared by all modes) ─────────────────────────────────────
+def _disabled_sources():
+    """Read TRADER_ADVISOR_DISABLED_SOURCES (JSON list) from env.
+
+    The dashboard's data-source toggles serialize their off list into this
+    env var on subprocess spawn. Honored only for the seven toggleable
+    sources — price/indicators/fundamentals are always-on regardless.
+    """
+    raw = os.getenv("TRADER_ADVISOR_DISABLED_SOURCES", "")
+    if not raw:
+        return set()
+    try:
+        return set(json.loads(raw))
+    except (ValueError, TypeError):
+        print(f"WARN: bad TRADER_ADVISOR_DISABLED_SOURCES={raw!r}; ignoring",
+              file=sys.stderr)
+        return set()
+
+
 def fetch_context(ticker, today):
+    """Build the context block fed to the LLM.
+
+    Hard-skip semantics: if a source is in the disabled set, its fetch is
+    not run at all. If a fetch returns None/empty or raises, the section
+    is omitted entirely (no 'Unavailable' filler) so the prompt stays clean.
+    Errors are logged to stderr for the operator, not into the prompt.
+    """
+    disabled = _disabled_sources()
     sections = []
 
-    try:
-        from prices import get_price_context
-        sections.append(PRICE_CONTEXT_TEMPLATE.format(summary=get_price_context(ticker)))
-    except Exception as e:
-        sections.append(f"## Price Data\nUnavailable: {e}")
+    def add(source_id, builder):
+        if source_id in disabled:
+            return
+        try:
+            text = builder()
+        except Exception as e:
+            print(f"WARN: {source_id} fetch failed for {ticker}: {e}",
+                  file=sys.stderr)
+            return
+        if text:
+            sections.append(text)
 
-    try:
+    def _price():
+        from prices import get_price_context
+        return PRICE_CONTEXT_TEMPLATE.format(summary=get_price_context(ticker))
+    add("price", _price)
+
+    def _earnings():
         from news import days_until_earnings, get_earnings_calendar_finnhub
         days = days_until_earnings(ticker)
-        if days is not None:
-            event = get_earnings_calendar_finnhub(ticker)
-            est = event.get("epsEstimate") if event else None
-            rev_est = event.get("revenueEstimate") if event else None
-            warning = " ⚠️ IMMINENT" if days <= 3 else (" (within 1 week)" if days <= 7 else "")
-            sections.append(EARNINGS_SECTION_TEMPLATE.format(
-                warning=warning, days=days,
-                date=event.get("date", "unknown"),
-                eps_est=est, rev_est=rev_est,
-            ))
-        else:
-            sections.append(EARNINGS_NONE)
-    except Exception as e:
-        sections.append(f"## Upcoming Earnings\nUnavailable: {e}")
+        if days is None:
+            return None
+        event = get_earnings_calendar_finnhub(ticker) or {}
+        warning = " ⚠️ IMMINENT" if days <= 3 else (" (within 1 week)" if days <= 7 else "")
+        return EARNINGS_SECTION_TEMPLATE.format(
+            warning=warning, days=days,
+            date=event.get("date", "unknown"),
+            eps_est=event.get("epsEstimate"),
+            rev_est=event.get("revenueEstimate"),
+        )
+    add("earnings", _earnings)
 
-    try:
+    def _insider():
         from news import insider_summary_text
-        insider = insider_summary_text(ticker)
-        sections.append(INSIDER_SECTION_TEMPLATE.format(summary=insider) if insider else INSIDER_NONE)
-    except Exception as e:
-        sections.append(f"## Insider Activity\nUnavailable: {e}")
+        text = insider_summary_text(ticker)
+        return INSIDER_SECTION_TEMPLATE.format(summary=text) if text else None
+    add("insider", _insider)
 
-    try:
+    def _options():
         from options import options_summary_text
-        opts = options_summary_text(ticker)
-        sections.append(OPTIONS_SECTION_TEMPLATE.format(summary=opts) if opts else OPTIONS_NONE)
-    except Exception as e:
-        sections.append(f"## Options Activity\nUnavailable: {e}")
+        text = options_summary_text(ticker)
+        return OPTIONS_SECTION_TEMPLATE.format(summary=text) if text else None
+    add("options", _options)
 
-    try:
+    def _sector():
         from sector import sector_summary_text
-        sector_text = sector_summary_text(ticker)
-        sections.append(SECTOR_SECTION_TEMPLATE.format(summary=sector_text) if sector_text else SECTOR_NONE)
-    except Exception as e:
-        sections.append(f"## Sector & Macro Context\nUnavailable: {e}")
+        text = sector_summary_text(ticker)
+        return SECTOR_SECTION_TEMPLATE.format(summary=text) if text else None
+    add("sector", _sector)
 
-    try:
+    def _stocktwits():
         from sentiment import stocktwits_summary_text
-        sent_text = stocktwits_summary_text(ticker)
-        sections.append(SENTIMENT_SECTION_TEMPLATE.format(summary=sent_text) if sent_text else SENTIMENT_NONE)
-    except Exception as e:
-        sections.append(f"## Social Sentiment\nUnavailable: {e}")
+        text = stocktwits_summary_text(ticker)
+        return SENTIMENT_SECTION_TEMPLATE.format(summary=text) if text else None
+    add("stocktwits", _stocktwits)
 
-    try:
+    def _reddit():
         from sentiment import reddit_summary_text
-        reddit_text = reddit_summary_text(ticker)
-        sections.append(REDDIT_SECTION_TEMPLATE.format(summary=reddit_text) if reddit_text else REDDIT_NONE)
-    except Exception as e:
-        sections.append(f"## Reddit Activity\nUnavailable: {e}")
+        text = reddit_summary_text(ticker)
+        return REDDIT_SECTION_TEMPLATE.format(summary=text) if text else None
+    add("reddit", _reddit)
 
-    from indicators import get_indicator_text
-    for indicator in ["macd", "rsi", "close_50_sma", "close_10_ema"]:
-        try:
-            sections.append(f"## {indicator.upper()}\n{get_indicator_text(ticker, indicator, today, days_back=30)}")
-        except Exception as e:
-            sections.append(f"## {indicator.upper()}\nUnavailable: {e}")
+    def _indicators():
+        from indicators import get_indicator_text
+        blocks = []
+        for indicator in ["macd", "rsi", "close_50_sma", "close_10_ema"]:
+            try:
+                blocks.append(
+                    f"## {indicator.upper()}\n"
+                    f"{get_indicator_text(ticker, indicator, today, days_back=30)}"
+                )
+            except Exception as e:
+                print(f"WARN: indicator {indicator} failed for {ticker}: {e}",
+                      file=sys.stderr)
+        return "\n\n".join(blocks) if blocks else None
+    add("indicators", _indicators)
 
-    try:
+    def _fundamentals():
         from fundamentals import get_fundamentals_text
-        sections.append(f"## Fundamentals\n{get_fundamentals_text(ticker)}")
-    except Exception as e:
-        sections.append(f"## Fundamentals\nUnavailable: {e}")
+        return f"## Fundamentals\n{get_fundamentals_text(ticker)}"
+    add("fundamentals", _fundamentals)
 
-    try:
+    def _news():
         from news import get_news_finnhub
         start = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
-        sections.append(f"## Recent News\n{get_news_finnhub(ticker, start, today)}")
-    except Exception as e:
-        sections.append(f"## Recent News\nUnavailable: {e}")
+        return f"## Recent News\n{get_news_finnhub(ticker, start, today)}"
+    add("news", _news)
 
     return "\n\n".join(sections)
 

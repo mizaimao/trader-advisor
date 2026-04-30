@@ -15,6 +15,7 @@ import subprocess
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -88,10 +89,18 @@ def split_message(text, limit=TELEGRAM_MSG_LIMIT):
     return [f"<i>({i+1}/{total})</i>\n{chunk}" for i, chunk in enumerate(chunks)]
 
 
-def check_ml39_alive(timeout=2):
-    """Returns True if ml39's Ollama port is reachable."""
+def check_ollama_alive(timeout=2):
+    """Returns True if the configured Ollama host:port is reachable.
+
+    Pulls the host from OLLAMA_BASE_URL (which can be either
+    http://host:port or http://host:port/v1). Falls back to localhost.
+    """
+    base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    parsed = urlparse(base)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 11434
     try:
-        with socket.create_connection(("ml39.local", 11434), timeout=timeout):
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except (socket.timeout, socket.error, OSError):
         return False
@@ -336,12 +345,12 @@ async def _start_run(bot, chat_id, tickers, mode):
 
     provider = os.getenv("PROVIDER", "ollama")
     if provider == "ollama":
-        if not check_ml39_alive():
+        if not check_ollama_alive():
             await bot.send_message(
                 chat_id=chat_id,
                 text=(
-                    "❌ ml39 is unreachable (Ollama server offline).\n\n"
-                    "Either start ml39, or switch provider to gemini in the dashboard."
+                    "❌ Ollama server is unreachable.\n\n"
+                    "Either start the server, or switch provider to gemini in the dashboard."
                 ),
             )
             return
