@@ -1,12 +1,12 @@
 """Per-session ephemeral state for the HF demo deployment.
 
-Each browser session gets /tmp/moose-demo/{session_id}/ holding its own
-trading.db and run_status.json. Pre-populated from demo_template.db (if
-present in repo root) on first session load. Tab-close = state lost,
+Each browser session gets /tmp/trader-advisor-demo/{session_id}/ holding
+its own trading.db and run_status.json. Pre-populated from demo_template.db
+(if present in repo root) on first session load. Tab-close = state lost,
 reload = fresh session.
 
-Only used when MOOSE_DEMO_MODE=true. In prod/local, db.py falls back to
-~/.tradingagents/ as before.
+Only used when TRADER_ADVISOR_DEMO_MODE=true. In prod/local, db.py falls
+back to ~/.tradingagents/ as before.
 """
 import os
 import shutil
@@ -18,7 +18,7 @@ import streamlit as st
 
 from db import set_session_paths
 
-DEMO_ROOT = "/tmp/moose-demo"
+DEMO_ROOT = "/tmp/trader-advisor-demo"
 SESSION_TTL_SECONDS = 3600  # abandoned tabs swept after 1 hour
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -57,7 +57,7 @@ def bootstrap():
 
 
 def sweep_old_sessions():
-    """Delete /tmp/moose-demo/{sid}/ directories older than the TTL.
+    """Delete /tmp/trader-advisor-demo/{sid}/ directories older than the TTL.
 
     Cheap stat-and-rmtree over a small dir. Runs on every rerun; the
     overhead is negligible compared to a Streamlit page render.

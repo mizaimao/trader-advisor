@@ -164,8 +164,8 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
 
     # Hand the subprocess this session's DB and status paths so its
     # writes land in the same place the dashboard reads from.
-    env["MOOSE_DB_PATH"] = db.db_path()
-    env["MOOSE_STATUS_FILE"] = db.status_file()
+    env["TRADER_ADVISOR_DB_PATH"] = db.db_path()
+    env["TRADER_ADVISOR_STATUS_FILE"] = db.status_file()
 
     tickers_arg = ",".join(queued)
     mode_args = []

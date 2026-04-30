@@ -73,7 +73,7 @@ def render():
 
     html = (
 '<div class="hero-box">'
-'<div class="hero-title">📈 moose-trader</div>'
+'<div class="hero-title">📈 trader-advisor</div>'
 '<div class="hero-tagline">'
 'A multi-mode LLM-driven stock analysis dashboard. '
 'Three agentic pipelines — solo analyst, adversarial panel, multi-agent debate — '
@@ -99,7 +99,7 @@ def render():
 '<li><b>Persistent decision history</b> — every run stored with full context, prompts, token cost, and runtime. A journal of how the agents have reasoned over time.</li>'
 '</ul>'
 '<div class="hero-links">'
-'<a href="https://github.com/mizaimao/moose-trader" target="_blank">GitHub →</a>'
+'<a href="https://github.com/mizaimao/trader-advisor" target="_blank">GitHub →</a>'
 '</div>'
 '</div>'
     )

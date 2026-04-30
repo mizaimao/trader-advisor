@@ -1,4 +1,4 @@
-# moose-trader
+# trader-advisor
 
 Personal short-term-trading dashboard with multi-mode LLM-driven analysis.
 
