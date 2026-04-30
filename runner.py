@@ -20,12 +20,12 @@ from prompts import (
     ADVOCATE_SYSTEM, ADVOCATE_USER,
     SYNTHESIS_SYSTEM, SYNTHESIS_USER,
     SENTIMENT_SECTION_TEMPLATE,
-    SENTIMENT_NONE
+    SENTIMENT_NONE,
 )
+
 
 # ── CONTEXT BUILDER (shared by all modes) ─────────────────────────────────────
 def fetch_context(ticker, today):
-    from tradingagents.dataflows.interface import route_to_vendor
     sections = []
 
     try:
@@ -93,22 +93,28 @@ def fetch_context(ticker, today):
     except Exception as e:
         sections.append(f"## Social Sentiment\nUnavailable: {e}")
 
+    # Indicators (in-house, replaces tradingagents.route_to_vendor)
+    from indicators import get_indicator_text
     for indicator in ["macd", "rsi", "close_50_sma", "close_10_ema"]:
         try:
-            ind = route_to_vendor("get_indicators", ticker, indicator, today, 30)
+            ind = get_indicator_text(ticker, indicator, today, days_back=30)
             sections.append(f"## {indicator.upper()}\n{ind}")
         except Exception as e:
             sections.append(f"## {indicator.upper()}\nUnavailable: {e}")
 
+    # Fundamentals (in-house)
     try:
-        fundamentals = route_to_vendor("get_fundamentals", ticker)
+        from fundamentals import get_fundamentals_text
+        fundamentals = get_fundamentals_text(ticker)
         sections.append(f"## Fundamentals\n{fundamentals}")
     except Exception as e:
         sections.append(f"## Fundamentals\nUnavailable: {e}")
 
+    # News (in-house, was already partly available via news.py)
     try:
+        from news import get_news_finnhub
         start = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
-        news = route_to_vendor("get_news", ticker, start, today)
+        news = get_news_finnhub(ticker, start, today)
         sections.append(f"## Recent News\n{news}")
     except Exception as e:
         sections.append(f"## Recent News\nUnavailable: {e}")
@@ -126,7 +132,6 @@ def extract_decision(text):
 
 
 def _make_llm(provider):
-    """Build an LLM client for the given provider."""
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=0.3)
@@ -135,7 +140,6 @@ def _make_llm(provider):
 
 
 def _normalize_content(content):
-    """Some providers return a list of parts; flatten to a single string."""
     if isinstance(content, list):
         return "\n".join(
             part.get("text", "") if isinstance(part, dict) else str(part)
@@ -157,7 +161,7 @@ def run_solo(ticker, today, provider, model):
         HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context))
     ])
     analysis = _normalize_content(response.content)
-    return analysis, extract_decision(analysis), None  # third value: extra payload (none for solo)
+    return analysis, extract_decision(analysis), None
 
 
 # ── CORE MODE (3-call adversarial pipeline) ──────────────────────────────────
@@ -167,7 +171,6 @@ def run_core(ticker, today, provider, model):
     llm = _make_llm(provider)
     context = fetch_context(ticker, today)
 
-    # Call 1: Initial analyst
     log_request(provider)
     initial_resp = llm.invoke([
         SystemMessage(content=SIMPLE_SYSTEM),
@@ -176,7 +179,6 @@ def run_core(ticker, today, provider, model):
     initial_analysis = _normalize_content(initial_resp.content)
     initial_decision = extract_decision(initial_analysis)
 
-    # Call 2: Devil's advocate
     log_request(provider)
     advocate_resp = llm.invoke([
         SystemMessage(content=ADVOCATE_SYSTEM),
@@ -188,7 +190,6 @@ def run_core(ticker, today, provider, model):
     ])
     advocate_analysis = _normalize_content(advocate_resp.content)
 
-    # Call 3: Synthesizer
     log_request(provider)
     synthesis_resp = llm.invoke([
         SystemMessage(content=SYNTHESIS_SYSTEM),
@@ -212,7 +213,7 @@ def run_core(ticker, today, provider, model):
     return synthesis_analysis, synthesis_decision, extra
 
 
-# ── FULL MODE (TradingAgents 7-agent graph) ──────────────────────────────────
+# ── FULL MODE (TradingAgents 7-agent graph, optional) ────────────────────────
 def run_full(ticker, today, provider, model):
     try:
         from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -247,7 +248,6 @@ def run_full(ticker, today, provider, model):
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def _resolve_mode():
-    """CLI mode selection. Default: core. Flags: --solo, --full."""
     if "--full" in sys.argv:
         return "full"
     if "--solo" in sys.argv:
