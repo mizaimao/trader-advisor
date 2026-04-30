@@ -64,10 +64,10 @@ def render(ticker_pick):
             range=[start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")],
         ),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     with st.expander("Transaction details"):
         show_df = tx_df[["date", "name", "code", "shares", "price", "value"]].copy()
         show_df["date"] = show_df["date"].dt.strftime("%Y-%m-%d")
         show_df = show_df.sort_values("date", ascending=False)
-        st.dataframe(show_df, use_container_width=True, hide_index=True)
+        st.dataframe(show_df, width="stretch", hide_index=True)

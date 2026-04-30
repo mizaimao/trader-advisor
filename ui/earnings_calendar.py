@@ -33,6 +33,6 @@ def render(managed_tickers):
 
             display_df = cal_df[["ticker", "countdown", "date", "hour", "eps_estimate", "revenue_estimate"]]
             display_df.columns = ["Ticker", "In", "Date", "Time", "EPS Est.", "Revenue Est."]
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
         else:
             st.info("No earnings scheduled within the next 30 days for tracked tickers.")

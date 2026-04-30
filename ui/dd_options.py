@@ -120,6 +120,6 @@ def _render_volume_chart(ticker_pick, expiry):
             legend=dict(orientation="h", y=1.1),
             title=dict(text="Options Volume by Strike", font=dict(size=14)),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     except Exception as e:
         st.caption(f"Volume chart unavailable: {e}")

@@ -123,7 +123,7 @@ if ticker_pick and not df.empty:
                                    "cost_sonnet", "runtime_seconds", "model"]]
             st.dataframe(
                 history.style.map(color_decision, subset=["decision"]),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 

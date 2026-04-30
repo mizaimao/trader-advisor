@@ -87,7 +87,7 @@ def render(managed_tickers, df, status):
         cols[0].checkbox("q", key=f"chk_{ticker}", label_visibility="hidden")
 
         label = f"⚙️ {ticker}" if is_running else ticker
-        if cols[1].button(label, key=f"tk_{ticker}", use_container_width=True):
+        if cols[1].button(label, key=f"tk_{ticker}", width="stretch"):
             st.session_state.selected_ticker = ticker
             st.session_state["scroll_to_deep_dive"] = True
             st.rerun()
