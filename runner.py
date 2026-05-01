@@ -268,12 +268,23 @@ def run_full(ticker, today, provider, model):
             "Or use --solo or core (default) mode instead."
         )
 
+    # Map our provider name → TradingAgents' llm_provider string.
+    # Native-SDK providers (anthropic, google) ignore backend_url; OpenAI-compat
+    # ones (openai, ollama) use it as the base URL for the chat client.
+    ta_provider = {
+        "gemini": "google",
+        "anthropic": "anthropic",
+        "openai": "openai",
+        "ollama": "ollama",
+    }.get(provider, "ollama")
+
     config = DEFAULT_CONFIG.copy()
-    if provider == "gemini":
-        config["llm_provider"] = "google"
+    config["llm_provider"] = ta_provider
+    if ta_provider in ("google", "anthropic"):
         config["backend_url"] = None
-    else:
-        config["llm_provider"] = "ollama"
+    elif ta_provider == "ollama":
+        config["backend_url"] = os.getenv("OLLAMA_BASE_URL", OLLAMA_BASE_URL)
+    # openai: leave DEFAULT_CONFIG's backend_url alone (api.openai.com)
     config["deep_think_llm"] = model
     config["quick_think_llm"] = model
     config["max_debate_rounds"] = 1

@@ -124,9 +124,15 @@ def render():
 
     # Try it yourself — provider dropdown + key
     with st.expander("🔑 Try it yourself (bring your own key)", expanded=False):
+        st.warning(
+            "⚠️ Live runs are temporarily disabled in this demo. Streamlit reruns the "
+            "entire script on every interaction and has no native way to refresh a "
+            "single component when a background subprocess finishes — the page would "
+            "show stale results until you manually reload. Working on a fix; in the "
+            "meantime the form below is read-only so you can see the BYOK flow without "
+            "hitting the bug. Pre-loaded analyses below are fully browseable."
+        )
         st.markdown(
-            "Pre-loaded analyses are shown by default. To run a fresh analysis on any "
-            "of the demo tickers, pick a provider and paste your key.\n\n"
             "🔒 **Sandbox & privacy:** your session runs in an isolated database that "
             "disappears when you close this tab. Your API key lives only in browser "
             "session memory — never logged, stored, or sent anywhere except your chosen "
@@ -138,6 +144,7 @@ def render():
             PROVIDER_LABELS,
             key="byok_provider_label",
             index=0,
+            disabled=True,
         )
         entry = get_by_label(chosen_label)
 
@@ -148,48 +155,13 @@ def render():
                 key="byok_api_key",
                 placeholder=entry["key_placeholder"],
                 help=f"Get a key at: {entry['key_help_url']}",
+                disabled=True,
             )
-            if st.session_state.get("byok_api_key"):
-                st.success(f"✓ Key loaded for {entry['label']}. Scroll down to the Run Queue.")
         else:
-            # Local provider (Ollama) — URL + auto-detected model selector
             st.text_input(
                 f"{entry['label']} server URL",
                 key="byok_ollama_url",
                 placeholder=entry["url_placeholder"],
                 help="If you run your own Ollama server, paste the URL here. Otherwise leave blank.",
-            )
-            url = (st.session_state.get("byok_ollama_url") or "").strip()
-            if url:
-                from .ollama_probe import probe_models
-                with st.spinner("Probing server for installed models..."):
-                    models, err = probe_models(url)
-                if models:
-                    # Keep the manual fallback key out of the way so run_queue
-                    # knows the auto-detect path won.
-                    st.session_state.pop("byok_ollama_model_manual", None)
-                    st.selectbox(
-                        "Model",
-                        models,
-                        key="byok_ollama_model_select",
-                        help="Auto-detected from /api/tags on this server.",
-                    )
-                    st.success(f"✓ Found {len(models)} model(s) on this server.")
-                else:
-                    st.session_state.pop("byok_ollama_model_select", None)
-                    st.warning(
-                        f"⚠️ Couldn't auto-detect models ({err}). "
-                        "Type a model name manually:"
-                    )
-                    st.text_input(
-                        "Model",
-                        value=st.session_state.get(
-                            "byok_ollama_model_manual", entry["model"]
-                        ),
-                        key="byok_ollama_model_manual",
-                        help="Must match what's installed on the server (`ollama list`).",
-                    )
-            st.info(
-                "Note: this demo's runtime cannot reach a localhost Ollama server on your machine. "
-                "This option is mainly useful if you have a publicly-reachable Ollama endpoint."
+                disabled=True,
             )
