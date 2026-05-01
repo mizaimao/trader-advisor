@@ -118,9 +118,9 @@ st.divider()
 
 master_table.render(managed_tickers, df, status)
 
-st.divider()
-
-run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
+if not DEMO_MODE:
+    st.divider()
+    run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
 
 st.divider()
 
