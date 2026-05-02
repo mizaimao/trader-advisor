@@ -32,9 +32,9 @@ def render(
     # ── 1. About ──────────────────────────────────────────────────────────
     st.markdown(
         "## About\n\n"
-        "Personal short-term-trading dashboard with multi-mode LLM-driven "
-        "analysis. Four pipelines, ten data sources, one toolbox the LLM "
-        "can drive itself."
+        "A personal dashboard for viewing and controlling LLM-driven trading "
+        "analysis. Four modes, ten data sources, and a loop-based agent mode "
+        "that drives its own toolbox."
     )
 
     # ── 2. Setup ──────────────────────────────────────────────────────────

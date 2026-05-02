@@ -84,13 +84,18 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
     col_mode, col_btn = st.columns([3, 1])
 
     with col_mode:
-        # All 4 modes in both demo and prod. In demo every control below is
-        # disabled, so the visitor sees the full surface without firing runs.
+        # All 4 modes in both demo and prod. The mode radio is disabled in
+        # demo (run is disabled too) but the budget sliders below are NOT —
+        # we want demo visitors to see the configurability surface even
+        # though they can't fire a run.
         modes_available = ["solo", "core", "full", "agent"]
+        default_mode_idx = (
+            modes_available.index("agent") if "agent" in modes_available else 0
+        )
         run_mode = st.radio(
             "Mode",
             modes_available,
-            index=1 if "core" in modes_available else 0,
+            index=default_mode_idx,
             horizontal=True,
             help="\n".join(f"{m}: {MODE_HINTS[m]}" for m in modes_available),
             disabled=DEMO_MODE,
@@ -113,7 +118,9 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
     # Token hints under the radio
     st.caption(MODE_HINTS.get(run_mode, ""))
 
-    # Agent-only: budget sliders. Tool-call cap and cumulative-token cap.
+    # Agent-only: budget sliders. Interactive even in demo — the Run button
+    # is what's gated, not the configurability surface. Visitors should be
+    # able to drag the sliders and see what tuning is exposed.
     agent_max_tool_calls = None
     agent_max_tokens = None
     if run_mode == "agent":
@@ -130,7 +137,6 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
                     "don't count. Lower = faster + cheaper but more constrained "
                     "reasoning. Higher = more thorough but more cost."
                 ),
-                disabled=DEMO_MODE,
             )
         with col_tokens:
             agent_max_tokens = st.slider(
@@ -147,7 +153,6 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
                     "7-tool run, ~100K+ for full 10-tool runs. Bumping helps when "
                     "the agent gets force-finalized with empty content."
                 ),
-                disabled=DEMO_MODE,
             )
 
     # Provider selector — demo mode reads from BYOK session_state, prod has a radio
@@ -157,7 +162,7 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
 
     # Demo mode: explain why all modes are disabled (matches top-banner copy)
     if DEMO_MODE:
-        with st.expander("ℹ️ Why are runs disabled in demo?"):
+        with st.expander("Runs are disabled in demo"):
             st.markdown(
                 "All four modes are disabled in demo for two reasons: "
                 "(1) BYOK browser visitors can't realistically supply the multiple API "
