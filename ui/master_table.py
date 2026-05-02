@@ -1,4 +1,11 @@
-"""The master ticker overview table — checkbox + ticker + earn + insider + 3 mode columns."""
+"""The master ticker overview table — checkbox + ticker + earn + insider + 3 mode columns.
+
+Solo runs are hidden from this overview to reduce visual clutter — they're still
+queryable via the deep-dive run picker, runnable from the Run Queue, and stored
+in the same DB. The three modes shown here are the more "interesting" ones for
+quick comparison: core (adversarial panel), agent (tool-use loop), full (7-agent
+debate). Order: core → agent → full, roughly by typical runtime.
+"""
 import pandas as pd
 import streamlit as st
 
@@ -14,14 +21,21 @@ from .formatters import (
 )
 
 
-TABLE_MODES = ["solo", "core", "full"]
+TABLE_MODES = ["core", "agent", "full"]
 
-# Layout: [check, ticker, earn, insider, solo, last, time, core, last, time, full, last, time, →]
-COL_WEIGHTS = [0.4, 1.1, 0.8, 1.4, 1.5, 1.3, 0.8, 1.5, 1.3, 0.8, 1.5, 1.3, 0.8, 0.5]
+# Layout: [check, ticker, earn, insider, {core,last,time}, {agent,last,time}, {full,last,time}, →]
+# Back to the wider 1.5/1.3/0.8 per triple now that we're at 3 modes.
+COL_WEIGHTS = [
+    0.4, 1.1, 0.8, 1.4,
+    1.5, 1.3, 0.8,
+    1.5, 1.3, 0.8,
+    1.5, 1.3, 0.8,
+    0.5,
+]
 HEADERS = [
     "☐", "Ticker", "Earn", "Insider",
-    "Solo", "Last", "Time",
     "Core", "Last", "Time",
+    "Agent", "Last", "Time",
     "Full", "Last", "Time",
     "→",
 ]
@@ -104,7 +118,8 @@ def render(managed_tickers, df, status):
             unsafe_allow_html=True,
         )
 
-        # Solo / Core / Full triple
+        # Core / Agent / Full triples (solo intentionally omitted; reachable
+        # via deep-dive run picker, still runnable via the Run Queue.)
         for offset, mode in zip((4, 7, 10), TABLE_MODES):
             decision = row[f"{mode}_decision"]
             date_val = row[f"{mode}_date"]

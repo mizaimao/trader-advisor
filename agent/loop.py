@@ -13,10 +13,12 @@ actual second implementation rather than a speculative interface.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Callable
 
 from openai import OpenAI
 
+from config import OLLAMA_MODEL as DEFAULT_MODEL
 from prices import tool_get_price_context, get_price_context
 from indicators import tool_get_indicator_text, get_indicator_text
 from news import (
@@ -41,7 +43,8 @@ from sentiment import (
 
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-DEFAULT_MODEL: str = "gpt-oss:20b"
+# DEFAULT_MODEL is imported from config.py as OLLAMA_MODEL — single source of
+# truth across all modes (solo/core/full/agent).
 DEFAULT_MAX_TOOL_CALLS: int = 10
 DEFAULT_MAX_TOKENS: int = 50_000
 DEFAULT_BASE_URL: str = "http://ml39.local:11434/v1"
@@ -96,6 +99,41 @@ tool_func_mapper: dict[str, Callable] = {
     "stocktwits_summary_text": stocktwits_summary_text,
     "reddit_summary_text": reddit_summary_text,
 }
+
+
+# Source IDs (from ui/data_sources.py TOGGLEABLE) → tool function names.
+# Always-on sources (price, indicators, fundamentals) aren't listed — they
+# can't be disabled via TRADER_ADVISOR_DISABLED_SOURCES regardless.
+_SOURCE_TO_TOOL_NAMES: dict[str, list[str]] = {
+    "earnings": ["days_until_earnings", "get_earnings_calendar_finnhub"],
+    "insider": ["get_insider_transactions_finnhub"],
+    "options": ["options_summary_text"],
+    "sector": ["sector_summary_text"],
+    "stocktwits": ["stocktwits_summary_text"],
+    "reddit": ["reddit_summary_text"],
+    "news": ["get_news_finnhub"],
+}
+
+
+def _disabled_tool_names() -> set[str]:
+    """Return tool names to skip based on TRADER_ADVISOR_DISABLED_SOURCES env.
+
+    The env var is JSON-encoded list of source IDs (e.g. ["options","reddit"]).
+    Set by ui/run_queue.py when spawning the runner subprocess. Bad values are
+    silently ignored — the agent can still produce a useful analysis with the
+    full toolbox if the env var is malformed.
+    """
+    raw = os.getenv("TRADER_ADVISOR_DISABLED_SOURCES", "")
+    if not raw:
+        return set()
+    try:
+        disabled_sources = set(json.loads(raw))
+    except (ValueError, TypeError):
+        return set()
+    skipped: set[str] = set()
+    for source_id in disabled_sources:
+        skipped.update(_SOURCE_TO_TOOL_NAMES.get(source_id, []))
+    return skipped
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -237,6 +275,21 @@ def run_agent(
     """
     client = OpenAI(base_url=base_url, api_key="ollama")
 
+    # Filter the tool registry per dashboard's data-source toggles. Always-on
+    # sources (price, indicators, fundamentals) are unaffected.
+    disabled = _disabled_tool_names()
+    if disabled:
+        active_tools = [
+            t for t in tools if t["function"]["name"] not in disabled
+        ]
+        active_mapper = {
+            name: fn for name, fn in tool_func_mapper.items()
+            if name not in disabled
+        }
+    else:
+        active_tools = tools
+        active_mapper = tool_func_mapper
+
     user_prompt: str = f"Analyze {ticker} as of {today} and recommend BUY/SELL/HOLD."
     messages: list[dict] = [{"role": "user", "content": user_prompt}]
 
@@ -262,7 +315,7 @@ def run_agent(
         response = client.chat.completions.create(
             model=model,
             messages=[sys_msg] + messages,
-            tools=tools,
+            tools=active_tools,
             tool_choice="none" if must_finalize else "auto",
             extra_body={"options": OLLAMA_OPTIONS},
         )
@@ -310,9 +363,9 @@ def run_agent(
             )
             fn_name: str = call.function.name
 
-            if fn_name in tool_func_mapper:
+            if fn_name in active_mapper:
                 try:
-                    result = tool_func_mapper[fn_name](**args)
+                    result = active_mapper[fn_name](**args)
                 except Exception as e:
                     result = json.dumps(
                         {"error": f"tool execution failed: {type(e).__name__}: {e}"}
