@@ -40,6 +40,7 @@ from sentiment import (
     stocktwits_summary_text,
     reddit_summary_text,
 )
+from peers import tool_peer_comparison, peer_comparison
 
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
@@ -84,6 +85,8 @@ tools: list[dict[str, Any]] = [
     tool_sector_summary_text,
     tool_stocktwits_summary_text,
     tool_reddit_summary_text,
+    # Synthesis tool
+    tool_peer_comparison,
 ]
 
 tool_func_mapper: dict[str, Callable] = {
@@ -98,6 +101,7 @@ tool_func_mapper: dict[str, Callable] = {
     "sector_summary_text": sector_summary_text,
     "stocktwits_summary_text": stocktwits_summary_text,
     "reddit_summary_text": reddit_summary_text,
+    "peer_comparison": peer_comparison,
 }
 
 

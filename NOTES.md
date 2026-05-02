@@ -22,3 +22,9 @@ Some tools/function calls may return empty or None objects. Need to deal with it
 The sector information should be fine-tuned by each stock as the current default is not a great reflection.
 
 GPT-OSS 20B sometimes decides to terminate the loop early, and sometimes requests weird tickers like "NVUPCOMING". Tuned down temp to 0.3 now.
+
+## 2026-05-02 — Sector tool: dynamic ETF selection at two levels
+We want a comparsion of single stock to a sector.
+
+1. Map ticker's sector → sector ETF (XLK / XLF / XLV / etc). Not good enough but info (noise?)
+2. So two levels: Sector ETF and then Industry ETF
