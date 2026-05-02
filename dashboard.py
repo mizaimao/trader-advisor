@@ -57,18 +57,38 @@ st.set_page_config(
     layout="wide",
 )
 
+# Tab styling — bump tab labels so they read as primary navigation, not
+# secondary clutter. Streamlit's default tab font-size hovers around 14px;
+# 17px feels like proper nav. Active-tab gets a thicker bottom-border accent
+# and slightly bolder text.
+st.markdown(
+    """<style>
+    .stTabs [data-baseweb="tab-list"] button {
+        font-size: 17px;
+        padding: 10px 18px;
+    }
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        font-weight: 600;
+        border-bottom-width: 3px;
+    }
+    .stTabs [data-baseweb="tab-list"] button:hover {
+        background: rgba(255,255,255,0.05);
+    }
+    </style>""",
+    unsafe_allow_html=True,
+)
+
 # ── App-level banner (above all tabs in demo) ───────────────────────────────
+# st.info (blue) reads as informational; st.warning (yellow) was reading as
+# apologetic. Demo state isn't a problem to warn about — it's just a fact.
 if DEMO_MODE:
-    st.warning(
-        "🔒 **Demo Mode — Live runs are disabled here for two reasons:** "
-        "(1) the system requires multiple API keys (Finnhub, Alpha Vantage, "
-        "plus an LLM provider) which makes BYOK impractical for browser "
-        "visitors, and (2) Streamlit's rerun-on-interaction model conflicts "
-        "with the live BYOK input flow. The full UI is intentionally visible "
-        "so you can see the system's capabilities. Pre-loaded analyses below "
-        "are fully browseable. To run this yourself, see the "
-        "[GitHub repo](https://github.com/mizaimao/trader-advisor) — clone, "
-        "drop your keys in `.env`, and `streamlit run dashboard.py`."
+    st.info(
+        "🔒 **Demo mode** — runs are pre-loaded. The full UI is shown so you "
+        "can see what the system does; live runs are disabled because the "
+        "agent needs Finnhub, Alpha Vantage, and an LLM key (browser BYOK "
+        "won't fit). To run live, clone the "
+        "[GitHub repo](https://github.com/mizaimao/trader-advisor) and add "
+        "your keys to `.env`."
     )
 
 # ── Data ─────────────────────────────────────────────────────────────────────
