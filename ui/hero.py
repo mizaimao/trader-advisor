@@ -125,14 +125,7 @@ def render():
 
     # Try it yourself — provider dropdown + key
     with st.expander("🔑 Try it yourself (bring your own key)", expanded=False):
-        st.warning(
-            "⚠️ Live runs are temporarily disabled in this demo. Streamlit reruns the "
-            "entire script on every interaction and has no native way to refresh a "
-            "single component when a background subprocess finishes — the page would "
-            "show stale results until you manually reload. Working on a fix; in the "
-            "meantime the form below is read-only so you can see the BYOK flow without "
-            "hitting the bug. Pre-loaded analyses below are fully browseable."
-        )
+        st.caption("BYOK inputs are read-only in demo. See top banner for why.")
         st.markdown(
             "🔒 **Sandbox & privacy:** your session runs in an isolated database that "
             "disappears when you close this tab. Your API key lives only in browser "

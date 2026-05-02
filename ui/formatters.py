@@ -120,3 +120,18 @@ def color_decision(val):
     if val in ("—", "UNKNOWN", "NAN", ""):
         return "color: #444444"
     return "background-color: #3a3a1a; color: #ffff00"
+
+
+def decision_label(val):
+    """Compact display label for a decision verdict.
+
+    UNDERWEIGHT and OVERWEIGHT are abbreviated to fit the master table's
+    narrow per-mode columns without wrapping. Pair with `title=` on the
+    rendered span to preserve the full word on hover.
+    """
+    val = str(val).upper()
+    if val == "UNDERWEIGHT":
+        return "UNDER"
+    if val == "OVERWEIGHT":
+        return "OVER"
+    return val

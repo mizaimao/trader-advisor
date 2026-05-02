@@ -31,3 +31,6 @@ We want a comparsion of single stock to a sector.
 
 Big problem: I cannot reliably enable demo mode because it takes more than one API key.
 That means even if I fix the streamlit bug it will still need keys from e.g. alpha_vantage, finnhub, telegram.
+We should disable live-run mode entirely, and design demo as a static showboard.
+
+Anoter pain is the dashboard: now it's awfully long and impractical. I need to group the items so they are much more organized.

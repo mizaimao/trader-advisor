@@ -77,56 +77,90 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
         st.write(f"Queued: {', '.join(queued)}" if queued else "No tickers queued.")
 
     with col_mode:
-        # Agent exposed in both demo and prod. In demo, full is hidden because
-        # it costs ~400K tokens per click and would drain BYOK credit; agent is
-        # bounded by its tool-call budget (default 10) so it's bring-your-own-quota safe.
-        modes_available = ["solo", "core", "agent"] if DEMO_MODE else ["solo", "core", "full", "agent"]
+        # All 4 modes in both demo and prod. In demo every control below is
+        # disabled, so the visitor sees the full surface without firing runs.
+        modes_available = ["solo", "core", "full", "agent"]
         run_mode = st.radio(
             "Mode",
             modes_available,
             index=1 if "core" in modes_available else 0,
             horizontal=True,
             help="\n".join(f"{m}: {MODE_HINTS[m]}" for m in modes_available),
+            disabled=DEMO_MODE,
         )
 
     with col_btn:
-        clicked = st.button("🚀 Run", type="primary")
+        clicked = st.button(
+            "🚀 Run",
+            type="primary",
+            disabled=DEMO_MODE,
+            help=(
+                "Disabled in demo mode. See top banner. Run locally to enable."
+                if DEMO_MODE
+                else None
+            ),
+        )
+        if DEMO_MODE:
+            st.caption("(disabled in demo)")
 
     # Token hints under the radio
     st.caption(MODE_HINTS.get(run_mode, ""))
 
-    # Agent-only: tool-call budget slider. Final-answer turns don't count
-    # against this cap (handled in agent/loop.py).
+    # Agent-only: budget sliders. Tool-call cap and cumulative-token cap.
     agent_max_tool_calls = None
+    agent_max_tokens = None
     if run_mode == "agent":
-        agent_max_tool_calls = st.slider(
-            "Max tool calls",
-            min_value=4,
-            max_value=20,
-            value=st.session_state.get("agent_max_tool_calls", 10),
-            key="agent_max_tool_calls",
-            help=(
-                "Cap on tool calls the agent can make. Final-answer turns don't count. "
-                "Lower = faster + cheaper but more constrained reasoning. "
-                "Higher = more thorough but more cost."
-            ),
-        )
+        col_calls, col_tokens = st.columns(2)
+        with col_calls:
+            agent_max_tool_calls = st.slider(
+                "Max tool calls",
+                min_value=4,
+                max_value=20,
+                value=st.session_state.get("agent_max_tool_calls", 10),
+                key="agent_max_tool_calls",
+                help=(
+                    "Cap on tool calls the agent can make. Final-answer turns "
+                    "don't count. Lower = faster + cheaper but more constrained "
+                    "reasoning. Higher = more thorough but more cost."
+                ),
+                disabled=DEMO_MODE,
+            )
+        with col_tokens:
+            agent_max_tokens = st.slider(
+                "Max tokens (cumulative)",
+                min_value=50_000,
+                max_value=200_000,
+                value=st.session_state.get("agent_max_tokens", 120_000),
+                step=10_000,
+                key="agent_max_tokens",
+                help=(
+                    "Cumulative-tokens-across-API-calls budget. Each tool call "
+                    "adds the growing message history to the next call's prompt, "
+                    "so this scales with tool-call count. Observed: ~65K for a "
+                    "7-tool run, ~100K+ for full 10-tool runs. Bumping helps when "
+                    "the agent gets force-finalized with empty content."
+                ),
+                disabled=DEMO_MODE,
+            )
 
     # Provider selector — demo mode reads from BYOK session_state, prod has a radio
     provider_entry = _resolve_provider(DEMO_MODE)
     if not DEMO_MODE:
         st.caption(f"Provider: **{provider_entry['label']}** · model `{provider_entry['model']}`")
 
-    # Demo mode: explain why full is disabled
+    # Demo mode: explain why all modes are disabled (matches top-banner copy)
     if DEMO_MODE:
-        with st.expander("ℹ️ Why is full mode disabled in demo?"):
+        with st.expander("ℹ️ Why are runs disabled in demo?"):
             st.markdown(
-                "Full mode runs a 7-agent debate via TradingAgents — analyst, researcher, "
-                "trader, risk manager, and others argue across multiple rounds. It produces "
-                "the most thorough analysis but uses **~400K tokens per ticker**, which would "
-                "burn through any free tier in a single run. It's disabled in the demo so a "
-                "single click can't drain your API quota. The full pipeline runs in the "
-                "production deployment; see GitHub for details."
+                "All four modes are disabled in demo for two reasons: "
+                "(1) BYOK browser visitors can't realistically supply the multiple API "
+                "keys the system needs (Finnhub + Alpha Vantage + LLM provider), and "
+                "(2) Streamlit's rerun-on-interaction model fights live BYOK input flows. "
+                "The full UI is exposed so you can see the system's surface — controls, "
+                "modes, settings — without firing real runs. The pre-loaded analyses in "
+                "the table above are real runs from the production deployment; click "
+                "into any of them to see the full deep-dive (price chart, agent trace, "
+                "options snapshot, sentiment, and more)."
             )
 
     if clicked:
@@ -134,6 +168,7 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
             queued, run_mode, provider_entry, status,
             project_root, python_bin, runner_path,
             agent_max_tool_calls=agent_max_tool_calls,
+            agent_max_tokens=agent_max_tokens,
         )
 
 
@@ -191,8 +226,16 @@ def _resolve_provider(demo_mode):
 def _handle_click(
     queued, run_mode, provider_entry, status,
     project_root, python_bin, runner_path,
-    *, agent_max_tool_calls=None,
+    *, agent_max_tool_calls=None, agent_max_tokens=None,
 ):
+    # Defense-in-depth: the Run button is disabled in DEMO_MODE so this should
+    # never fire there, but if session_state is somehow manipulated, refuse.
+    if DEMO_MODE:
+        st.error(
+            "Live runs are disabled in demo mode. Clone the repo and run "
+            "locally to execute analyses — see the banner at the top of the page."
+        )
+        return
     if not queued:
         st.warning("Queue is empty.")
         return
@@ -265,6 +308,8 @@ def _handle_click(
         mode_args = ["--agent"]
         if agent_max_tool_calls is not None:
             mode_args.extend(["--max-tool-calls", str(agent_max_tool_calls)])
+        if agent_max_tokens is not None:
+            mode_args.extend(["--max-tokens", str(agent_max_tokens)])
 
     cmd = [
         python_bin, runner_path,
