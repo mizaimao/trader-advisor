@@ -1,19 +1,16 @@
 """Hero / landing components.
 
-Three exported entry points used by the new tab structure:
+Two exported entry points used by the Overview tab:
 
-- `render_compact()`      — small capsule strip for the Overview tab
-- `render_architecture()` — mermaid architecture diagrams for the About tab
-- `render_byok()`         — provider/key/Ollama-URL form for the About tab
-                            (visible-but-disabled in demo per the top banner)
+- `render_compact()`      — title + subtitle + 4 capsules (no outer box)
+- `render_architecture()` — mermaid architecture diagrams (data flow + core)
 
-The previous monolithic `render()` is gone — the tab orchestrators
-(`overview_tab.py`, `about_tab.py`) compose the right pieces in the right places.
+BYOK / run config moved out of this module into `ui/run_modal.py`, which is
+opened via the persistent top-right "⚡ Run Analysis" button.
 """
 import streamlit as st
 
 from .mermaid import render as render_mermaid
-from .providers import PROVIDER_LABELS, get_by_label
 
 
 # ── architecture diagrams ────────────────────────────────────────────────────
@@ -117,47 +114,8 @@ def render_architecture():
     render_mermaid(CORE_PIPELINE_DIAGRAM, height=240)
 
 
-# ── BYOK form (About tab) ────────────────────────────────────────────────────
-def render_byok():
-    """Provider/key/Ollama-URL form for the About tab. Read-only in demo."""
-    with st.expander("🔑 Try it yourself (bring your own key)", expanded=False):
-        st.caption("BYOK inputs are read-only in demo. See top banner for why.")
-        st.markdown(
-            "🔒 **Sandbox & privacy:** your session runs in an isolated database "
-            "that disappears when you close this tab. Your API key lives only in "
-            "browser session memory — never logged, stored, or sent anywhere "
-            "except your chosen LLM provider."
-        )
-
-        # Provider dropdown is interactive even in demo so visitors can browse
-        # what providers the system supports. The key/URL inputs that follow
-        # remain disabled (typing real secrets into a session that can't fire
-        # a run is wasted effort).
-        chosen_label = st.selectbox(
-            "Provider",
-            PROVIDER_LABELS,
-            key="byok_provider_label",
-            index=0,
-        )
-        entry = get_by_label(chosen_label)
-
-        if entry["needs_key"]:
-            st.text_input(
-                f"{entry['label']} API key",
-                type="password",
-                key="byok_api_key",
-                placeholder=entry["key_placeholder"],
-                help=f"Get a key at: {entry['key_help_url']}",
-                disabled=True,
-            )
-        else:
-            st.text_input(
-                f"{entry['label']} server URL",
-                key="byok_ollama_url",
-                placeholder=entry["url_placeholder"],
-                help=(
-                    "If you run your own Ollama server, paste the URL here. "
-                    "Otherwise leave blank."
-                ),
-                disabled=True,
-            )
+# BYOK form lived here previously; it's now owned by `ui/run_modal.py`,
+# which is opened via the persistent top-right "⚡ Run Analysis" button.
+# The unused `PROVIDER_LABELS` / `get_by_label` imports stay in case other
+# call sites still reference the providers registry — both are re-exported
+# from `ui.providers` directly.
