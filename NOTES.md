@@ -1,0 +1,18 @@
+# Project Notes
+
+## 2026-05-02 — Project repositioning: adding agent mode
+
+Decision: `gpt-oss:20b` on the ml39 Ollama server is the v1 default; `gemma4:26b` is the local fallback. No automatic fallback logic.
+
+Qwen3.6 35B-A3B Q4_K_M doesn't fit
+
+tool schema's `description` field is written and tuned independently from the Python function's docstring. 
+
+
+1. **Final analysis loses nuance from intermediate reasoning.** S
+2. **Agent forgets its own plan across turns.** num_ctx???
+3. **Agent flags questions but doesn't follow through.** 
+4. **Strategy branches don't fire reliably.** 
+5. **News tool returns mostly off-topic articles.** 
+
+Need to write new tools for the agent
