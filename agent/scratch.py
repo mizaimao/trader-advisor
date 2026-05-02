@@ -53,83 +53,122 @@ tool_func_mapper: dict[str, Callable] = {
     "days_until_earnings": days_until_earnings,
 }
 
-# Initial message
-system_prompt: str = (
-    "You are a stock trader and wants to decide what to do with the given stock NVDA"
-    "You have access to a bunch of tools but have limited number of calls."
-    f"[Budget: Now you have {remaining_tool_calls}/{max_tool_calls} calls so use them wisely.]"
-)
-messages = [{"role": "system", "content": system_prompt}]
+def normalize_assistant_msg(assistant_msg) -> dict:
+    """Convert assistant message to a clean dict the API will accept on the next call.
+    
+    Helper function needed by GPT-OSS-20B which sometimes returns a dict not string.
+    """
+    msg = assistant_msg.model_dump(exclude_unset=True, exclude_none=True)
+    
+    # Ensure content is a string (Ollama's Harmony translation sometimes returns a dict)
+    content = msg.get("content")
+    if content is None:
+        msg["content"] = ""
+    elif not isinstance(content, str):
+        msg["content"] = str(content)
+    
+    # Drop fields that aren't part of the OpenAI message schema and confuse Ollama on round-trip
+    msg.pop("reasoning", None)
+    msg.pop("function_call", None)  # legacy, replaced by tool_calls
+    msg.pop("refusal", None)
+    msg.pop("annotations", None)
+    msg.pop("audio", None)
+    return msg
+
+def normalize_tool_result(result) -> str:
+    """Fix tool result formats.
+    Tools may return numbers or dicts or strings, while our OpenAI API only support string.
+    """
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, (dict, list)):
+        return json.dumps(result, default=str)  # default=str handles numpy types inside
+    return str(result)
+
+def build_system_message(remaining_tool_calls: int, max_tool_calls: int) -> dict[str, str]:
+    return {
+        "role": "system",
+        "content": (
+        "You are a stock trader and wants to decide what to do with the given stock ONDS"
+        "You have access to a bunch of tools but have limited number of calls."
+        f"[Budget: Now you have {remaining_tool_calls}/{max_tool_calls} calls so use them wisely.]"
+    )
+    }
+
+messages: list[dict[str, str]] = []
 
 # Initial API call and we log its response.
 response = client.chat.completions.create(
-    model=model_name, messages=messages, tools=tools, tool_choice="auto"
+    model=model_name, messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages, tools=tools, tool_choice="auto"
 )
 # We get the response from the LLM, and then append it right back to the conversation log.
 assistant_msg = response.choices[0].message
-messages.append(assistant_msg.model_dump(exclude_unset=True))
-# print("Content:", repr(assistant_msg.content))
-# print("Tool calls:", assistant_msg.tool_calls)
-# print("Raw assistant_msg structure:")
-# print(assistant_msg.model_dump_json(indent=2))
+messages.append(normalize_assistant_msg(assistant_msg))
 
 while remaining_tool_calls:
+    # If the LLM does not call tools, break early it's done thinking.
+    if not assistant_msg.tool_calls:
+        break
+
     # Call tools based on LLM's decision.
-    if assistant_msg.tool_calls:
-        for call in assistant_msg.tool_calls:
+    for call in assistant_msg.tool_calls:
+        if not remaining_tool_calls:  # Tool use exhausted.
+            break
 
-            if not remaining_tool_calls:
-                break
+        remaining_tool_calls -= 1
 
-            remaining_tool_calls -= 1
+        args: dict[str, str] = json.loads(call.function.arguments)
+        fn_name: str = call.function.name
+        result: str = ""
+        if fn_name in tool_func_mapper:
+            try:
+                result = tool_func_mapper[fn_name](**args)
+            except Exception as e:
+                result = json.dumps(
+                    {"error": f"tool execution failed: {type(e).__name__}: {e}"}
+                )
+        else:
+            result = json.dumps({"error": f"unknown tool: {fn_name}"})
 
-            args: dict[str, str] = json.loads(call.function.arguments)
-            fn_name: str = call.function.name
-            result: str = ""
-            if fn_name in tool_func_mapper:
-                try:
-                    result = tool_func_mapper[fn_name](**args)
-                except Exception as e:
-                    result = json.dumps(
-                        {"error": f"tool execution failed: {type(e).__name__}: {e}"}
-                    )
-            else:
-                result = json.dumps({"error": f"unknown tool: {fn_name}"})
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.id,
-                    "content": result if result else "",
-                }
-            )
-
-            messages.append(
-                {"role": "user", "content": f"You now have {remaining_tool_calls}/{max_tool_calls} tool use left, use them wisely!"}
-            )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": normalize_tool_result(result),  # This field has to be a string.
+            }
+        )
 
     response = client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        tools=tools,
-        tool_choice="auto"
+        model=model_name, 
+        messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages, 
+        tools=tools, tool_choice="auto"
     )
     assistant_msg = response.choices[0].message
-    messages.append(assistant_msg.model_dump(exclude_unset=True))
-    # else:  # The LLM decides not to use tools.
-    #     break
+    messages.append(normalize_assistant_msg(assistant_msg))
 
-# For debugging.
+# The LLM decides not to call functions and the loop broke early.
+if not assistant_msg.tool_calls:
+    final_message: str = response.choices[0].message.content
+# Tool budget exhausted.
+else:
+    # final API call
+    final_prompt = client.chat.completions.create(
+        model=model_name,
+        messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages,
+        tools=tools,
+        tool_choice="none",  # No more tool calls for the final answer.
+    )
+    final_message = final_prompt.choices[0].message.content
+
 for m in messages:
     print(m)
+    print()
+    print()
+    print()
+    print()
+    print()
 
-# final API call
-final = client.chat.completions.create(
-    model=model_name, messages=messages, tools=tools, tool_choice="none"  # No more tool calls for the final answer.
-)
-print(final.choices[0].message.content)
-breakpoint()
+print(final_message)
 
-# === 8. Print the final answer ===
-# Hint: response.choices[0].message.content
-print(final.choices[0].message.content)
