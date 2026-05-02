@@ -12,6 +12,7 @@ import streamlit as st
 from .cache import days_until_earnings_cached, insider_summary_cached
 from .formatters import (
     color_decision,
+    decision_label,
     earnings_color,
     earnings_label,
     insider_color,
@@ -125,7 +126,8 @@ def render(managed_tickers, df, status):
             date_val = row[f"{mode}_date"]
             runtime = row[f"{mode}_runtime"]
             cols[offset].markdown(
-                f'<span style="{color_decision(decision)};padding:2px 6px;border-radius:4px">{decision}</span>',
+                f'<span style="{color_decision(decision)};padding:2px 6px;border-radius:4px" '
+                f'title="{decision}">{decision_label(decision)}</span>',
                 unsafe_allow_html=True,
             )
             cols[offset + 1].markdown(

@@ -47,7 +47,7 @@ from peers import tool_peer_comparison, peer_comparison
 # DEFAULT_MODEL is imported from config.py as OLLAMA_MODEL — single source of
 # truth across all modes (solo/core/full/agent).
 DEFAULT_MAX_TOOL_CALLS: int = 10
-DEFAULT_MAX_TOKENS: int = 50_000
+DEFAULT_MAX_TOKENS: int = 120_000
 DEFAULT_BASE_URL: str = "http://ml39.local:11434/v1"
 
 # Ollama-specific. temp=0.3 stabilizes tool-arg generation without flattening

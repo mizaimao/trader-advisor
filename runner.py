@@ -312,6 +312,17 @@ def _resolve_max_tool_calls():
     return None
 
 
+def _resolve_max_tokens():
+    """Read --max-tokens CLI arg, or None to use agent.loop's default."""
+    if "--max-tokens" in sys.argv:
+        idx = sys.argv.index("--max-tokens")
+        try:
+            return int(sys.argv[idx + 1])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
 def run_agent(ticker, today, provider, model):
     """Adapter from agent.loop.run_agent (2-tuple) to the runner's 3-tuple shape.
 
@@ -322,6 +333,9 @@ def run_agent(ticker, today, provider, model):
     max_tc = _resolve_max_tool_calls()
     if max_tc is not None:
         kwargs["max_tool_calls"] = max_tc
+    max_tk = _resolve_max_tokens()
+    if max_tk is not None:
+        kwargs["max_tokens"] = max_tk
     analysis, meta = _run_agent_loop(**kwargs)
     decision = extract_decision(analysis)
     # Token totals are inside meta because langchain's get_openai_callback

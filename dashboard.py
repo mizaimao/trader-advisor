@@ -22,7 +22,6 @@ from ui import (
     dd_metadata,
     dd_price_chart,
     dd_analysis,
-    dd_agent_trace,
     dd_insider,
     dd_options,
     dd_sentiment,
@@ -69,6 +68,19 @@ st.set_page_config(
 )
 
 if DEMO_MODE:
+    # Top-of-page banner — visitors need to know this is read-only BEFORE
+    # they try clicking things. Above the hero so it's the first thing seen.
+    st.warning(
+        "🔒 **Demo Mode — Live runs are disabled here for two reasons:** "
+        "(1) the system requires multiple API keys (Finnhub, Alpha Vantage, "
+        "plus an LLM provider) which makes BYOK impractical for browser "
+        "visitors, and (2) Streamlit's rerun-on-interaction model conflicts "
+        "with the live BYOK input flow. The full UI is intentionally visible "
+        "so you can see the system's capabilities. Pre-loaded analyses below "
+        "are fully browseable. To run this yourself, see the "
+        "[GitHub repo](https://github.com/mizaimao/trader-advisor) — clone, "
+        "drop your keys in `.env`, and `streamlit run dashboard.py`."
+    )
     hero.render()
 else:
     st.title("📈 Trading Analysis Dashboard")
@@ -119,9 +131,10 @@ st.divider()
 
 master_table.render(managed_tickers, df, status)
 
-if not DEMO_MODE:
-    st.divider()
-    run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
+# Run queue rendered in both modes — in demo every interactive control inside
+# is disabled, so visitors see the surface without being able to fire a run.
+st.divider()
+run_queue.render(managed_tickers, status, PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH)
 
 st.divider()
 
@@ -166,14 +179,6 @@ if ticker_pick and not df.empty:
                 dd_price_chart.render(ticker_pick)
 
             st.divider()
-
-            # Agent trace renders ABOVE the analysis paragraph: tells the
-            # journey before the verdict. Only fires when this run was
-            # produced by the --agent mode.
-            if (row.get("mode") or "").lower() == "agent":
-                dd_agent_trace.render(row)
-                st.divider()
-
             dd_analysis.render(row)
 
             dd_insider.render(ticker_pick)
