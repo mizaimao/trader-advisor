@@ -1,49 +1,39 @@
-"""The master ticker overview table — checkbox + ticker + earn + insider + 3 mode columns.
+"""Master ticker × mode overview table — the central element of the Overview tab.
 
-Solo runs are hidden from this overview to reduce visual clutter — they're still
-queryable via the deep-dive run picker, runnable from the Run Queue, and stored
-in the same DB. The three modes shown here are the more "interesting" ones for
-quick comparison: core (adversarial panel), agent (tool-use loop), full (7-agent
-debate). Order: core → agent → full, roughly by typical runtime.
+7 columns: Ticker | Earn | Insider | Solo | Core | Full | Agent
+
+Each verdict cell is a clickable button. Clicking sets session_state hints
+(`target_ticker`, `target_mode`) and fires `st.toast` to cue the user to
+switch to the Run Explorer tab. Streamlit's tabs API doesn't support
+programmatic switching — pre-population + manual switch is the agreed
+fallback (per Phase 1 demo refactor spec).
+
+What was dropped vs the prior version:
+- Per-row checkboxes (the run queue now uses its own multiselect)
+- "Last" / "Time" columns (that detail belongs in Run Explorer)
+- "→" arrow button (verdict cells are themselves the nav action)
 """
 import pandas as pd
 import streamlit as st
 
 from .cache import days_until_earnings_cached, insider_summary_cached
 from .formatters import (
-    color_decision,
-    decision_label,
     earnings_color,
     earnings_label,
     insider_color,
     insider_label,
-    relative_time,
-    time_color,
 )
 
 
-TABLE_MODES = ["core", "agent", "full"]
+TABLE_MODES = ["solo", "core", "full", "agent"]
 
-# Layout: [check, ticker, earn, insider, {core,last,time}, {agent,last,time}, {full,last,time}, →]
-# Back to the wider 1.5/1.3/0.8 per triple now that we're at 3 modes.
-COL_WEIGHTS = [
-    0.4, 1.1, 0.8, 1.4,
-    1.5, 1.3, 0.8,
-    1.5, 1.3, 0.8,
-    1.5, 1.3, 0.8,
-    0.5,
-]
-HEADERS = [
-    "☐", "Ticker", "Earn", "Insider",
-    "Core", "Last", "Time",
-    "Agent", "Last", "Time",
-    "Full", "Last", "Time",
-    "→",
-]
+# 7 columns — Ticker (button), Earn, Insider, then 4 mode cells.
+COL_WEIGHTS = [1.2, 0.9, 1.5, 1.3, 1.3, 1.3, 1.3]
+HEADERS = ["Ticker", "Earn", "Insider", "Solo", "Core", "Full", "Agent"]
 
 
 def build_master_df(managed_tickers, df):
-    """Build the per-ticker summary DataFrame: latest run per mode + earnings + insider."""
+    """Per-ticker latest-decision-per-mode + earnings + insider summary."""
     rows = []
     for ticker in managed_tickers:
         row = {"ticker": ticker}
@@ -57,36 +47,42 @@ def build_master_df(managed_tickers, df):
             row["insider"] = None
 
         for mode in TABLE_MODES:
+            row[f"{mode}_decision"] = "—"
             if not df.empty:
                 match = df[(df["ticker"] == ticker) & (df["mode"] == mode)]
                 if not match.empty:
                     latest = match.sort_values("run_date").iloc[-1]
-                    row[f"{mode}_decision"] = latest["decision"]
-                    row[f"{mode}_date"] = latest["run_date"]
-                    row[f"{mode}_runtime"] = latest.get("runtime_seconds", 0)
-                    row[f"{mode}_model"] = latest.get("model", "—")
-                    continue
-            row[f"{mode}_decision"] = "—"
-            row[f"{mode}_date"] = None
-            row[f"{mode}_runtime"] = 0
-            row[f"{mode}_model"] = "—"
+                    row[f"{mode}_decision"] = latest["decision"] or "—"
         rows.append(row)
-
     return pd.DataFrame(rows)
+
+
+def _decision_emoji_label(val):
+    """Emoji + abbreviated label. Streamlit buttons can't carry pill-style
+    background colors cleanly, so the emoji preserves the at-a-glance color
+    signal that the prior styled span had."""
+    v = str(val).upper().strip()
+    if v in ("—", "UNKNOWN", "NAN", "", "NONE"):
+        return "—"
+    if v == "BUY":
+        return "🟢 BUY"
+    if v == "OVERWEIGHT":
+        return "🟢 OVER"
+    if v == "SELL":
+        return "🔴 SELL"
+    if v == "UNDERWEIGHT":
+        return "🔴 UNDER"
+    if v == "HOLD":
+        return "🟡 HOLD"
+    return v[:10]
 
 
 def render(managed_tickers, df, status):
     st.subheader("Ticker Overview")
-
-    col_selall, col_clrall, _ = st.columns([1, 1, 6])
-    if col_selall.button("☑ Select All"):
-        for t in managed_tickers:
-            st.session_state[f"chk_{t}"] = True
-        st.rerun()
-    if col_clrall.button("☐ Clear All"):
-        for t in managed_tickers:
-            st.session_state[f"chk_{t}"] = False
-        st.rerun()
+    st.caption(
+        "Click a verdict cell to load that run in the **Run Explorer** tab. "
+        "Cells with no run are disabled."
+    )
 
     master_df = build_master_df(managed_tickers, df)
 
@@ -99,48 +95,47 @@ def render(managed_tickers, df, status):
         is_running = status["status"] == "running" and status["current"] == ticker
         cols = st.columns(COL_WEIGHTS)
 
-        cols[0].checkbox("q", key=f"chk_{ticker}", label_visibility="hidden")
+        # Ticker — clickable button (sets target_ticker for the Run Explorer)
+        ticker_label = f"⚙️ {ticker}" if is_running else ticker
+        if cols[0].button(
+            ticker_label,
+            key=f"tk_{ticker}",
+            use_container_width=True,
+            help=f"Open {ticker} in the Run Explorer tab",
+        ):
+            st.session_state["target_ticker"] = ticker
+            st.toast(f"Selected {ticker}. Open the **🔍 Run Explorer** tab →")
 
-        label = f"⚙️ {ticker}" if is_running else ticker
-        if cols[1].button(label, key=f"tk_{ticker}", width="stretch"):
-            st.session_state.selected_ticker = ticker
-            st.session_state["scroll_to_deep_dive"] = True
-            st.rerun()
-
+        # Earn (days to earnings)
         edays = row.get("earnings_days")
-        cols[2].markdown(
+        cols[1].markdown(
             f'<span style="{earnings_color(edays)}">{earnings_label(edays)}</span>',
             unsafe_allow_html=True,
         )
 
+        # Insider summary (color-coded)
         insider = row.get("insider")
-        cols[3].markdown(
-            f'<span style="{insider_color(insider)}" title="{insider or "no recent activity"}">{insider_label(insider)}</span>',
+        cols[2].markdown(
+            f'<span style="{insider_color(insider)}" '
+            f'title="{insider or "no recent activity"}">'
+            f'{insider_label(insider)}</span>',
             unsafe_allow_html=True,
         )
 
-        # Core / Agent / Full triples (solo intentionally omitted; reachable
-        # via deep-dive run picker, still runnable via the Run Queue.)
-        for offset, mode in zip((4, 7, 10), TABLE_MODES):
+        # 4 mode cells (Solo, Core, Full, Agent) — clickable for nav
+        for offset, mode in zip((3, 4, 5, 6), TABLE_MODES):
             decision = row[f"{mode}_decision"]
-            date_val = row[f"{mode}_date"]
-            runtime = row[f"{mode}_runtime"]
-            cols[offset].markdown(
-                f'<span style="{color_decision(decision)};padding:2px 6px;border-radius:4px" '
-                f'title="{decision}">{decision_label(decision)}</span>',
-                unsafe_allow_html=True,
-            )
-            cols[offset + 1].markdown(
-                f'<span style="{time_color(date_val)}">{relative_time(date_val)}</span>',
-                unsafe_allow_html=True,
-            )
-            runtime_str = f"{runtime}s" if runtime else "—"
-            cols[offset + 2].markdown(
-                f'<span style="color:#888">{runtime_str}</span>',
-                unsafe_allow_html=True,
-            )
-
-        if cols[13].button("→", key=f"view_{ticker}"):
-            st.session_state.selected_ticker = ticker
-            st.session_state["scroll_to_deep_dive"] = True
-            st.rerun()
+            label = _decision_emoji_label(decision)
+            disabled = label == "—"
+            if cols[offset].button(
+                label,
+                key=f"pill_{ticker}_{mode}",
+                help=str(decision),
+                use_container_width=True,
+                disabled=disabled,
+            ):
+                st.session_state["target_ticker"] = ticker
+                st.session_state["target_mode"] = mode
+                st.toast(
+                    f"Selected {ticker} ({mode}). Open the **🔍 Run Explorer** tab →"
+                )
