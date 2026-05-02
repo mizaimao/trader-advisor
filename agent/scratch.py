@@ -15,6 +15,21 @@ from news import (
 
 DEFAULT_MODEL: str = "gpt-oss:20b"
 DEFAULT_MAX_TOOL_CALLS: int = 10
+AGENT_SYSTEM: str = """
+You are a stock trading advisor and the user would ask you a specific stock to analyze.
+The user would want you to gather data, potentially from different sources and angles to perform the analysis.
+You can request tool usage from a selection, and that will give you up-to-date data about the stock to help your analysis.
+
+STRATEGY:
+1. Start with `get_price_context` and `get_indicator_text` — that's the absolute basic
+2. Branch based on what you observe — no need to fetch everything
+3. Each tool call costs a step from your budget
+4. When you have enough information, write your final analysis and end with: FINAL DECISION: <BUY|SELL|HOLD>
+"""
+
+ticker = "NVDA"
+user_prompt: str =  f"Analyze {ticker} and recommend BUY/SELL/HOLD."
+
 
 client = OpenAI(base_url="http://ml39.local:11434/v1", api_key="ollama")
 max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS
@@ -35,6 +50,8 @@ if DEFAULT_MODEL in available_models:
 else:
     print(f"Default model {DEFAULT_MODEL} not in client, will choose the first one.")
 
+
+trace: list[dict] = []
 
 # Here we define tools available to use. May need to refactor to smaller chunks.
 tools: list[dict[str, Any]] = [
@@ -87,17 +104,53 @@ def normalize_tool_result(result) -> str:
         return json.dumps(result, default=str)  # default=str handles numpy types inside
     return str(result)
 
+
+def build_trace_entry(assistant_msg, *, step: int, budget_remaining_before: int) -> dict:
+    """Extract trace-friendly fields from an assistant message.
+
+    Returns the response-derived portion of a trace entry with `tool_results`
+    initialized to an empty list — the caller fills it in after each tool
+    actually runs.
+
+    Args:
+        assistant_msg: The .choices[0].message object from a completion response.
+        step: Zero-indexed turn number.
+        budget_remaining_before: Tool-call budget at the start of this turn
+            (before any tools triggered by this assistant message run).
+
+    Returns:
+        Dict with keys: step, thought, tool_calls, tool_results, budget_remaining_before.
+        - thought: assistant's text content, "" if absent.
+        - tool_calls: list of {name, args, id} dicts (args parsed from JSON).
+        - tool_results: empty list, to be appended to during dispatch.
+    """
+    return {
+        "step": step,
+        "thought": assistant_msg.content or "",
+        "tool_calls": [
+            {
+                "name": call.function.name,
+                "args": json.loads(call.function.arguments) if call.function.arguments else {},
+                "id": call.id,
+            }
+            for call in (assistant_msg.tool_calls or [])
+        ],
+        "tool_results": [],
+        "budget_remaining_before": budget_remaining_before,
+    }
+
+
 def build_system_message(remaining_tool_calls: int, max_tool_calls: int) -> dict[str, str]:
     return {
         "role": "system",
-        "content": (
-        "You are a stock trader and wants to decide what to do with the given stock ONDS"
-        "You have access to a bunch of tools but have limited number of calls."
+        "content": 
+        AGENT_SYSTEM +
         f"[Budget: Now you have {remaining_tool_calls}/{max_tool_calls} calls so use them wisely.]"
-    )
     }
 
-messages: list[dict[str, str]] = []
+messages: list[dict[str, str]] = [
+    {"role": "user", "content": user_prompt}
+]
 
 # Initial API call and we log its response.
 response = client.chat.completions.create(
