@@ -242,13 +242,15 @@ def run_agent(
 
     trace: list[dict] = []
     tool_calls_used: int = 0
-    tokens_used: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     iter_cap: int = max_tool_calls + 3  # safety bound against pathological loops
 
     for iteration in range(iter_cap):
         budget_remaining: int = max_tool_calls - tool_calls_used
         must_finalize: bool = (
-            budget_remaining <= 0 or tokens_used >= max_tokens
+            budget_remaining <= 0
+            or (prompt_tokens + completion_tokens) >= max_tokens
         )
 
         sys_msg = build_system_message(
@@ -266,8 +268,9 @@ def run_agent(
         )
         assistant_msg = response.choices[0].message
 
-        if response.usage and response.usage.total_tokens:
-            tokens_used += response.usage.total_tokens
+        if response.usage:
+            prompt_tokens += response.usage.prompt_tokens or 0
+            completion_tokens += response.usage.completion_tokens or 0
 
         trace.append(
             build_trace_entry(
@@ -285,7 +288,9 @@ def run_agent(
                 assistant_msg.content or "",
                 {
                     "trace": trace,
-                    "tokens": tokens_used,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "tokens": prompt_tokens + completion_tokens,
                     "tool_calls_used": tool_calls_used,
                     "max_tool_calls": max_tool_calls,
                     "forced_final": must_finalize,

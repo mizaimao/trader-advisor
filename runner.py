@@ -23,6 +23,7 @@ from prompts import (
     SENTIMENT_SECTION_TEMPLATE,
     REDDIT_SECTION_TEMPLATE,
 )
+from agent import run_agent as _run_agent_loop
 
 
 # ── CONTEXT BUILDER (shared by all modes) ─────────────────────────────────────
@@ -299,17 +300,43 @@ def run_full(ticker, today, provider, model):
     return analysis, decision, None
 
 
+# ── AGENT ─────────────────────────────────────────────────────────────────────
+def run_agent(ticker, today, provider, model):
+    """Adapter from agent.loop.run_agent (2-tuple) to the runner's 3-tuple shape.
+
+    Provider is currently ignored — agent mode always uses the OpenAI-compatible
+    Ollama client per Phase 1 spec. Anthropic adapter slots in at Step 9.
+    """
+    analysis, meta = _run_agent_loop(
+        ticker=ticker,
+        today=today,
+        model=model,
+    )
+    decision = extract_decision(analysis)
+    # Token totals are inside meta because langchain's get_openai_callback
+    # doesn't capture the raw openai client agent.loop uses. main() reads them
+    # from extra when MODE == 'agent'.
+    return analysis, decision, meta
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def _resolve_mode():
     if "--full" in sys.argv:
         return "full"
     if "--solo" in sys.argv:
         return "solo"
+    if "--agent" in sys.argv:
+        return "agent"
     return "core"
 
 
 def _resolve_runner(mode):
-    return {"solo": run_solo, "core": run_core, "full": run_full}[mode]
+    return {
+        "solo": run_solo,
+        "core": run_core,
+        "full": run_full,
+        "agent": run_agent,
+    }[mode]
 
 
 def _resolve_model():
@@ -346,14 +373,24 @@ def main():
                 analysis, decision, extra = ANALYZE(ticker, today, PROVIDER, MODEL)
                 runtime = round(time.time() - t_start, 1)
 
+                # Agent mode bypasses langchain (raw openai client), so cb is
+                # empty — pull token counts from extra. Other modes use cb.
+                if MODE == "agent" and isinstance(extra, dict):
+                    p_tokens = extra.get("prompt_tokens", 0)
+                    c_tokens = extra.get("completion_tokens", 0)
+                else:
+                    p_tokens = cb.prompt_tokens
+                    c_tokens = cb.completion_tokens
+                total_tokens = p_tokens + c_tokens
+
                 save_run(ticker, today, decision, analysis,
-                         cb.prompt_tokens, cb.completion_tokens,
+                         p_tokens, c_tokens,
                          mode=MODE, runtime_seconds=runtime,
                          model=MODEL, host=host, extra=extra)
 
                 print(f"\n{ticker} FINAL DECISION: {decision}")
-                print(f"Runtime: {runtime}s | Tokens: {cb.total_tokens:,}")
-                print(f"Cost if Sonnet 4.6: ${cb.prompt_tokens/1e6*3 + cb.completion_tokens/1e6*15:.4f}")
+                print(f"Runtime: {runtime}s | Tokens: {total_tokens:,}")
+                print(f"Cost if Sonnet 4.6: ${p_tokens/1e6*3 + c_tokens/1e6*15:.4f}")
         except Exception as e:
             err_msg = str(e)
             # Surface key/auth errors more clearly
