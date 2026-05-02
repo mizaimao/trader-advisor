@@ -301,17 +301,28 @@ def run_full(ticker, today, provider, model):
 
 
 # ── AGENT ─────────────────────────────────────────────────────────────────────
+def _resolve_max_tool_calls():
+    """Read --max-tool-calls CLI arg, or None to use agent.loop's default."""
+    if "--max-tool-calls" in sys.argv:
+        idx = sys.argv.index("--max-tool-calls")
+        try:
+            return int(sys.argv[idx + 1])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
 def run_agent(ticker, today, provider, model):
     """Adapter from agent.loop.run_agent (2-tuple) to the runner's 3-tuple shape.
 
     Provider is currently ignored — agent mode always uses the OpenAI-compatible
     Ollama client per Phase 1 spec. Anthropic adapter slots in at Step 9.
     """
-    analysis, meta = _run_agent_loop(
-        ticker=ticker,
-        today=today,
-        model=model,
-    )
+    kwargs = {"ticker": ticker, "today": today, "model": model}
+    max_tc = _resolve_max_tool_calls()
+    if max_tc is not None:
+        kwargs["max_tool_calls"] = max_tc
+    analysis, meta = _run_agent_loop(**kwargs)
     decision = extract_decision(analysis)
     # Token totals are inside meta because langchain's get_openai_callback
     # doesn't capture the raw openai client agent.loop uses. main() reads them

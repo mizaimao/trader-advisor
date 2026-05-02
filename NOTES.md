@@ -28,3 +28,6 @@ We want a comparsion of single stock to a sector.
 
 1. Map ticker's sector → sector ETF (XLK / XLF / XLV / etc). Not good enough but info (noise?)
 2. So two levels: Sector ETF and then Industry ETF
+
+Big problem: I cannot reliably enable demo mode because it takes more than one API key.
+That means even if I fix the streamlit bug it will still need keys from e.g. alpha_vantage, finnhub, telegram.

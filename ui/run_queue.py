@@ -95,6 +95,23 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
     # Token hints under the radio
     st.caption(MODE_HINTS.get(run_mode, ""))
 
+    # Agent-only: tool-call budget slider. Final-answer turns don't count
+    # against this cap (handled in agent/loop.py).
+    agent_max_tool_calls = None
+    if run_mode == "agent":
+        agent_max_tool_calls = st.slider(
+            "Max tool calls",
+            min_value=4,
+            max_value=20,
+            value=st.session_state.get("agent_max_tool_calls", 10),
+            key="agent_max_tool_calls",
+            help=(
+                "Cap on tool calls the agent can make. Final-answer turns don't count. "
+                "Lower = faster + cheaper but more constrained reasoning. "
+                "Higher = more thorough but more cost."
+            ),
+        )
+
     # Provider selector — demo mode reads from BYOK session_state, prod has a radio
     provider_entry = _resolve_provider(DEMO_MODE)
     if not DEMO_MODE:
@@ -113,7 +130,11 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
             )
 
     if clicked:
-        _handle_click(queued, run_mode, provider_entry, status, project_root, python_bin, runner_path)
+        _handle_click(
+            queued, run_mode, provider_entry, status,
+            project_root, python_bin, runner_path,
+            agent_max_tool_calls=agent_max_tool_calls,
+        )
 
 
 def _resolve_provider(demo_mode):
@@ -167,7 +188,11 @@ def _resolve_provider(demo_mode):
     return entry
 
 
-def _handle_click(queued, run_mode, provider_entry, status, project_root, python_bin, runner_path):
+def _handle_click(
+    queued, run_mode, provider_entry, status,
+    project_root, python_bin, runner_path,
+    *, agent_max_tool_calls=None,
+):
     if not queued:
         st.warning("Queue is empty.")
         return
@@ -238,6 +263,8 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
         mode_args = ["--solo"]
     elif run_mode == "agent":
         mode_args = ["--agent"]
+        if agent_max_tool_calls is not None:
+            mode_args.extend(["--max-tool-calls", str(agent_max_tool_calls)])
 
     cmd = [
         python_bin, runner_path,

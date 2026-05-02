@@ -23,8 +23,9 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-import pandas as pd
 import yfinance as yf
+
+from yf_bulk import bulk_history, perf_from_bulk
 
 
 # ── Tool schema ──────────────────────────────────────────────────────────────
@@ -125,14 +126,14 @@ def peer_comparison(
 def _fetch_all_metrics(tickers: list[str]) -> dict[str, dict]:
     """Fetch perf + valuation metrics for all tickers in bulk.
 
-    Three bulk yf.download() calls cover all price periods; .info calls are
-    parallelized via a thread pool. Failures at any field reduce to None
-    rather than raising — same per-field robustness as the sequential version.
+    Three bulk yf.download() calls cover all price periods (via yf_bulk);
+    .info calls are parallelized via a thread pool here (no bulk endpoint
+    for .info). Failures at any field reduce to None rather than raising.
     """
     # Bulk price downloads — one HTTP call per period, all tickers at once
-    prices_5d = _bulk_history(tickers, period="5d")
-    prices_1mo = _bulk_history(tickers, period="1mo")
-    prices_1y = _bulk_history(tickers, period="1y")
+    prices_5d = bulk_history(tickers, period="5d")
+    prices_1mo = bulk_history(tickers, period="1mo")
+    prices_1y = bulk_history(tickers, period="1y")
 
     # Concurrent .info — yfinance has no bulk endpoint for this
     infos = _concurrent_infos(tickers)
@@ -141,26 +142,6 @@ def _fetch_all_metrics(tickers: list[str]) -> dict[str, dict]:
         t: _assemble_metrics(t, prices_5d, prices_1mo, prices_1y, infos.get(t, {}))
         for t in tickers
     }
-
-
-def _bulk_history(tickers: list[str], period: str):
-    """yf.download wrapper. Returns DataFrame or None on bulk failure.
-
-    Returns shape: when len(tickers) > 1, MultiIndex columns (ticker, field).
-    When len(tickers) == 1 (shouldn't happen here — agent always has main +
-    at least 1 peer — but defended anyway), flat columns.
-    """
-    try:
-        return yf.download(
-            tickers,
-            period=period,
-            group_by="ticker",
-            progress=False,
-            auto_adjust=True,
-            threads=False,  # we own concurrency above; don't double-thread
-        )
-    except Exception:
-        return None
 
 
 def _concurrent_infos(tickers: list[str]) -> dict[str, dict]:
@@ -187,51 +168,16 @@ def _assemble_metrics(
     """Stitch bulk fetch results into a single ticker's metrics dict."""
     return {
         "ticker": ticker,
-        "perf_1d": _perf_from_bulk(prices_5d, ticker, mode="last_two"),
-        "perf_5d": _perf_from_bulk(prices_5d, ticker, mode="first_last"),
-        "perf_1mo": _perf_from_bulk(prices_1mo, ticker, mode="first_last"),
-        "perf_1y": _perf_from_bulk(prices_1y, ticker, mode="first_last"),
+        "perf_1d": perf_from_bulk(prices_5d, ticker, mode="last_two"),
+        "perf_5d": perf_from_bulk(prices_5d, ticker, mode="first_last"),
+        "perf_1mo": perf_from_bulk(prices_1mo, ticker, mode="first_last"),
+        "perf_1y": perf_from_bulk(prices_1y, ticker, mode="first_last"),
         "pe": info.get("trailingPE"),
         "fwd_pe": info.get("forwardPE"),
         "profit_margin": info.get("profitMargins"),
         "operating_margin": info.get("operatingMargins"),
         "market_cap": info.get("marketCap"),
     }
-
-
-def _perf_from_bulk(df, ticker: str, *, mode: str) -> float | None:
-    """Extract % change from a bulk-downloaded DataFrame for one ticker.
-
-    `mode='last_two'` uses last two closes (1d perf within a 5d window).
-    `mode='first_last'` uses first vs last close (whole-period change).
-    """
-    if df is None or len(df) == 0:
-        return None
-    try:
-        if isinstance(df.columns, pd.MultiIndex):
-            level0 = df.columns.get_level_values(0)
-            if ticker not in level0:
-                return None
-            closes = df[ticker]["Close"].dropna()
-        else:
-            # Single-ticker fallback (yfinance returns flat columns then)
-            closes = df["Close"].dropna()
-
-        if len(closes) < 2:
-            return None
-
-        if mode == "last_two":
-            prev = float(closes.iloc[-2])
-            cur = float(closes.iloc[-1])
-        else:  # first_last
-            prev = float(closes.iloc[0])
-            cur = float(closes.iloc[-1])
-
-        if prev == 0:
-            return None
-        return ((cur - prev) / prev) * 100
-    except Exception:
-        return None
 
 
 # ── Summary stats ────────────────────────────────────────────────────────────
