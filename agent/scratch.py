@@ -15,6 +15,9 @@ from news import (
 
 DEFAULT_MODEL: str = "gpt-oss:20b"
 DEFAULT_MAX_TOOL_CALLS: int = 10
+
+# Ollama-specific.
+OLLAMA_OPTIONS: dict[str, Any] = {"num_ctx": 32768}
 AGENT_SYSTEM: str = """
 You are a stock trading advisor and the user would ask you a specific stock to analyze.
 The user would want you to gather data, potentially from different sources and angles to perform the analysis.
@@ -24,7 +27,8 @@ STRATEGY:
 1. Start with `get_price_context` and `get_indicator_text` — that's the absolute basic
 2. Branch based on what you observe — no need to fetch everything
 3. Each tool call costs a step from your budget
-4. When you have enough information, write your final analysis and end with: FINAL DECISION: <BUY|SELL|HOLD>
+4. When you have enough information, write your final analysis and surface the strongest counter-evidence you encountered, not just what supports your decision.
+5. End your analysis with: FINAL DECISION: <BUY|SELL|HOLD>
 """
 
 ticker = "NVDA"
@@ -50,7 +54,7 @@ if DEFAULT_MODEL in available_models:
 else:
     print(f"Default model {DEFAULT_MODEL} not in client, will choose the first one.")
 
-
+# The agent execution trace are stored here.
 trace: list[dict] = []
 
 # Here we define tools available to use. May need to refactor to smaller chunks.
@@ -112,6 +116,12 @@ def build_trace_entry(assistant_msg, *, step: int, budget_remaining_before: int)
     initialized to an empty list — the caller fills it in after each tool
     actually runs.
 
+    Captures `reasoning` separately from `thought`. GPT-OSS emits chain-of-thought
+    in the `reasoning` field while the visible answer goes in `content` — so a
+    turn that only fires tool calls often has empty `content` and rich `reasoning`.
+    Note: `normalize_assistant_msg` deliberately drops `reasoning` before round-trip
+    to the API; this function reads it before that pruning happens.
+
     Args:
         assistant_msg: The .choices[0].message object from a completion response.
         step: Zero-indexed turn number.
@@ -119,14 +129,16 @@ def build_trace_entry(assistant_msg, *, step: int, budget_remaining_before: int)
             (before any tools triggered by this assistant message run).
 
     Returns:
-        Dict with keys: step, thought, tool_calls, tool_results, budget_remaining_before.
-        - thought: assistant's text content, "" if absent.
+        Dict with keys: step, thought, reasoning, tool_calls, tool_results, budget_remaining_before.
+        - thought: assistant's visible text content, "" if absent.
+        - reasoning: model's chain-of-thought, "" if absent.
         - tool_calls: list of {name, args, id} dicts (args parsed from JSON).
         - tool_results: empty list, to be appended to during dispatch.
     """
     return {
         "step": step,
         "thought": assistant_msg.content or "",
+        "reasoning": getattr(assistant_msg, "reasoning", None) or "",
         "tool_calls": [
             {
                 "name": call.function.name,
@@ -154,11 +166,18 @@ messages: list[dict[str, str]] = [
 
 # Initial API call and we log its response.
 response = client.chat.completions.create(
-    model=model_name, messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages, tools=tools, tool_choice="auto"
+    model=model_name,
+    messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages,
+    tools=tools,
+    tool_choice="auto",
+    extra_body={"options": OLLAMA_OPTIONS},
 )
 # We get the response from the LLM, and then append it right back to the conversation log.
 assistant_msg = response.choices[0].message
 messages.append(normalize_assistant_msg(assistant_msg))
+trace.append(build_trace_entry(
+    assistant_msg, step=0, budget_remaining_before=remaining_tool_calls,
+))
 
 while remaining_tool_calls:
     # If the LLM does not call tools, break early it's done thinking.
@@ -193,13 +212,31 @@ while remaining_tool_calls:
             }
         )
 
+        # Mirror the result into the current turn's trace entry so the
+        # printed/displayed trace shows what the agent actually got back.
+        # `result` is kept in its native type (str/dict/list) — display logic
+        # decides how to render. `messages` already has the stringified copy.
+        trace[-1]["tool_results"].append({
+            "id": call.id,
+            "name": fn_name,
+            "input": args,
+            "output": result,
+        })
+
     response = client.chat.completions.create(
-        model=model_name, 
-        messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages, 
-        tools=tools, tool_choice="auto"
+        model=model_name,
+        messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages,
+        tools=tools,
+        tool_choice="auto",
+        extra_body={"options": OLLAMA_OPTIONS},
     )
     assistant_msg = response.choices[0].message
     messages.append(normalize_assistant_msg(assistant_msg))
+    trace.append(build_trace_entry(
+        assistant_msg,
+        step=len(trace),
+        budget_remaining_before=remaining_tool_calls,
+    ))
 
 # The LLM decides not to call functions and the loop broke early.
 if not assistant_msg.tool_calls:
@@ -212,11 +249,13 @@ else:
         messages=[build_system_message(remaining_tool_calls, max_tool_calls)] + messages,
         tools=tools,
         tool_choice="none",  # No more tool calls for the final answer.
+        extra_body={"options": OLLAMA_OPTIONS},
     )
     final_message = final_prompt.choices[0].message.content
 
-for m in messages:
-    print(m)
+for t in trace:
+    for k, v in t.items():
+        print(k, v)
     print()
     print()
     print()
