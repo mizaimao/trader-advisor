@@ -62,6 +62,7 @@ MODE_HINTS = {
     "solo": "~30s · ~18K tokens/run",
     "core": "~60s · ~55K tokens/run",
     "full": "~5–15 min · ~400K tokens/run",
+    "agent": "~60–120s · variable tokens · up to 10 tool calls (LLM-driven)",
 }
 
 
@@ -76,7 +77,10 @@ def render(managed_tickers, status, project_root, python_bin, runner_path):
         st.write(f"Queued: {', '.join(queued)}" if queued else "No tickers queued.")
 
     with col_mode:
-        modes_available = ["solo", "core"] if DEMO_MODE else ["solo", "core", "full"]
+        # Agent exposed in both demo and prod. In demo, full is hidden because
+        # it costs ~400K tokens per click and would drain BYOK credit; agent is
+        # bounded by its tool-call budget (default 10) so it's bring-your-own-quota safe.
+        modes_available = ["solo", "core", "agent"] if DEMO_MODE else ["solo", "core", "full", "agent"]
         run_mode = st.radio(
             "Mode",
             modes_available,
@@ -219,6 +223,8 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
         mode_args = ["--full"]
     elif run_mode == "solo":
         mode_args = ["--solo"]
+    elif run_mode == "agent":
+        mode_args = ["--agent"]
 
     cmd = [
         python_bin, runner_path,
