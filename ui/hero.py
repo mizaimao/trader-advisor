@@ -129,12 +129,15 @@ def render_byok():
             "except your chosen LLM provider."
         )
 
+        # Provider dropdown is interactive even in demo so visitors can browse
+        # what providers the system supports. The key/URL inputs that follow
+        # remain disabled (typing real secrets into a session that can't fire
+        # a run is wasted effort).
         chosen_label = st.selectbox(
             "Provider",
             PROVIDER_LABELS,
             key="byok_provider_label",
             index=0,
-            disabled=True,
         )
         entry = get_by_label(chosen_label)
 

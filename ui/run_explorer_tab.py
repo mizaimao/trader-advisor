@@ -3,19 +3,17 @@
 Sections (top to bottom):
 1. Run selector strip (ticker + run dropdown)
 2. Run header strip (verdict pill + mode + model + runtime + tokens + cost)
-3. Metadata + price chart side-by-side
-4. Mode-conditional analysis:
-     - solo/core/full: dd_analysis (handles core's panel internally)
-     - agent: dd_agent_trace timeline first, then dd_analysis
-5. Universal data panels (insider, options, sentiment, news) — all collapsed
-   by default per spec ("Each panel collapsed-by-default except Price chart")
-6. Earnings calendar (deprioritized to bottom expander)
+3. Metadata + price chart side-by-side (price chart is the only non-collapsed panel)
+4. Insider Activity + Options Snapshot side-by-side (both foldable, collapsed)
+5. Agent trace (only for agent runs — folded by default per dd_agent_trace)
+6. Analysis (foldable, expanded by default)
+7. Social Sentiment combined panel (foldable, collapsed)
+8. Latest News (foldable, collapsed via dd_news)
+9. Earnings Calendar (foldable, collapsed)
 
-Cross-tab nav: reads `st.session_state["target_ticker"]`, ["target_mode"],
-and ["target_run_id"] hints set by Overview tab clicks (master_table cells
-or featured_runs cards). The hints are popped immediately on read so they
-don't sticky on later natural navigation; if present, they force-set the
-selectbox state BEFORE the widgets render.
+Cross-tab nav: reads `target_ticker`, `target_mode`, `target_run_id` hints set
+by Overview tab clicks. The hints are popped on read; if present, they
+force-set the selectbox session_state BEFORE the widgets render.
 """
 import streamlit as st
 
@@ -35,11 +33,7 @@ def render(managed_tickers, df, status):
         )
         return
 
-    # ── Consume cross-tab nav hints (set in Overview by master_table or
-    # featured_runs). Pop so they don't persist past one render. Force the
-    # selectbox session_state values BEFORE the widgets are created — that's
-    # the only point where session_state[key] takes priority over the widget's
-    # `index=` parameter on first render.
+    # ── Consume cross-tab nav hints ────────────────────────────────────────
     target_ticker = st.session_state.pop("target_ticker", None)
     target_mode = st.session_state.pop("target_mode", None)
     target_run_id = st.session_state.pop("target_run_id", None)
@@ -52,9 +46,8 @@ def render(managed_tickers, df, status):
 
     with col_ticker:
         try:
-            default_ticker_idx = (
-                managed_tickers.index(st.session_state.get("explorer_ticker", managed_tickers[0]))
-                if managed_tickers else 0
+            default_ticker_idx = managed_tickers.index(
+                st.session_state.get("explorer_ticker", managed_tickers[0])
             )
         except ValueError:
             default_ticker_idx = 0
@@ -76,14 +69,13 @@ def render(managed_tickers, df, status):
 
     ticker_runs["run_label"] = ticker_runs.apply(
         lambda r: (
-            f"#{r['id']} | {r['run_date']} | {r['mode']} | {r.get('decision') or '—'}"
+            f"#{r['id']} | {r['run_date']} | {r['mode']} | "
+            f"{r.get('decision') or '—'}"
         ),
         axis=1,
     )
 
-    # If a specific run was hinted, force-select it (matches by id). Else if
-    # a mode hint is set, pick the first run with that mode. Else default to
-    # most recent.
+    # Force-select target run if one was requested by the Overview click.
     if target_run_id is not None:
         match = ticker_runs[ticker_runs["id"] == target_run_id]
         if not match.empty:
@@ -95,11 +87,11 @@ def render(managed_tickers, df, status):
                 break
 
     with col_run:
-        # If session_state has a stale label (e.g., user switched tickers),
-        # default index falls back to 0.
         labels = ticker_runs["run_label"].tolist()
         current_label = st.session_state.get("explorer_run")
-        default_run_idx = labels.index(current_label) if current_label in labels else 0
+        default_run_idx = (
+            labels.index(current_label) if current_label in labels else 0
+        )
         run_label_pick = st.selectbox(
             "Run",
             labels,
@@ -117,44 +109,47 @@ def render(managed_tickers, df, status):
     st.divider()
 
     # ── 3. Metadata + price chart side-by-side ────────────────────────────
-    # Price chart is the only panel NOT collapsed (it's the visual anchor).
+    # Price chart is the visual anchor — the only panel NOT collapsed by default.
     col_meta, col_chart = st.columns([1, 4])
     with col_meta:
         dd_metadata.render(row)
     with col_chart:
         dd_price_chart.render(ticker_pick)
 
+    # ── 4. Earnings calendar (inline, no expander, right under the chart) ─
+    earnings_calendar.render(
+        [ticker_pick] if ticker_pick else [], wrap_in_expander=False,
+    )
+
     st.divider()
 
-    # ── 4. Mode-conditional analysis ──────────────────────────────────────
-    # Agent: trace timeline first (the journey), analysis paragraph below.
-    # Solo/Core/Full: dd_analysis owns the layout (core renders its panel).
+    # ── 5. Insider + Options under one foldable, side by side ─────────────
+    with st.expander(
+        "📊 Insider Activity (last 90 days) and Options Snapshot",
+        expanded=False,
+    ):
+        col_insider, col_options = st.columns(2)
+        with col_insider:
+            dd_insider.render(ticker_pick)
+        with col_options:
+            dd_options.render(ticker_pick)
+
+    # ── 6. Agent trace (agent runs only — own expander internally) ────────
     if run_mode == "agent":
         dd_agent_trace.render(row)
-        st.divider()
-    dd_analysis.render(row)
 
-    # ── 5. Universal data panels (collapsed by default) ───────────────────
-    st.divider()
-    with st.expander("📊 Insider Activity (last 90 days)", expanded=False):
-        dd_insider.render(ticker_pick)
+    # ── 7. Analysis (foldable, expanded by default) ───────────────────────
+    with st.expander("📝 Analysis", expanded=True):
+        dd_analysis.render(row)
 
-    with st.expander("📈 Options Snapshot", expanded=False):
-        dd_options.render(ticker_pick)
-
-    # Sentiment merge — StockTwits + Reddit sit in one panel (saves vertical
-    # space vs separate sections).
+    # ── 8. Social Sentiment combined ──────────────────────────────────────
     with st.expander("💬 Social Sentiment (StockTwits + Reddit)", expanded=False):
         dd_sentiment.render(ticker_pick)
         st.markdown("---")
         dd_reddit.render(ticker_pick)
 
-    # News owns its own expander internally (kept for the days-back slider
-    # placement). Just call it; don't double-wrap.
+    # ── 9. Latest News (own expander, collapsed) ──────────────────────────
     dd_news.render(ticker_pick)
-
-    # ── 6. Earnings calendar (deprioritized) ──────────────────────────────
-    earnings_calendar.render([ticker_pick] if ticker_pick else [])
 
 
 def _render_run_header(row):

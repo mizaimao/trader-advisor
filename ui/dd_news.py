@@ -8,7 +8,7 @@ from .render_news import render_news
 
 
 def render(ticker_pick):
-    with st.expander("📰 Latest News", expanded=True):
+    with st.expander("📰 Latest News", expanded=False):
         days_back = st.slider("Days back", 1, 14, 3)
         end = datetime.today().strftime("%Y-%m-%d")
         start = (datetime.today() - timedelta(days=days_back)).strftime("%Y-%m-%d")

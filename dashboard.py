@@ -57,22 +57,52 @@ st.set_page_config(
     layout="wide",
 )
 
-# Tab styling — bump tab labels so they read as primary navigation, not
-# secondary clutter. Streamlit's default tab font-size hovers around 14px;
-# 17px feels like proper nav. Active-tab gets a thicker bottom-border accent
-# and slightly bolder text.
+# Custom CSS for the dashboard:
+#  - Tabs styled as clear primary navigation (was nearly invisible on default).
+#    Tabs now look like pill-buttons with strong active-state contrast and
+#    a hover background so visitors actually see they're clickable.
+#  - Dividers and expanders get halved vertical margins so foldables stack
+#    tightly instead of leaving big white gaps.
 st.markdown(
     """<style>
+    /* Tabs — make them look like clickable navigation */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 2px solid rgba(255,255,255,0.10);
+        margin-bottom: 14px;
+    }
     .stTabs [data-baseweb="tab-list"] button {
-        font-size: 17px;
-        padding: 10px 18px;
+        font-size: 20px;
+        font-weight: 500;
+        letter-spacing: 0.6px;
+        padding: 14px 26px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 8px 8px 0 0;
+        border-bottom: 3px solid transparent !important;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .stTabs [data-baseweb="tab-list"] button:hover {
+        background: rgba(255,255,255,0.08);
     }
     .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
         font-weight: 600;
-        border-bottom-width: 3px;
+        background: rgba(122,184,245,0.14);
+        color: #7ab8f5 !important;
+        border-bottom-color: #7ab8f5 !important;
     }
-    .stTabs [data-baseweb="tab-list"] button:hover {
-        background: rgba(255,255,255,0.05);
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] p {
+        color: #7ab8f5 !important;
+    }
+
+    /* Halve divider gap (default ~16px each side → 8px) */
+    hr {
+        margin-top: 8px !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* Tighter expander spacing — Streamlit renders expanders as <details> */
+    details {
+        margin-bottom: 6px !important;
     }
     </style>""",
     unsafe_allow_html=True,
@@ -105,9 +135,9 @@ status_banner.render(status, demo_mode=DEMO_MODE)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
 tab_overview, tab_runs, tab_about = st.tabs([
-    "🎯 Overview",
-    "🔍 Run Explorer",
-    "⚙️ About & Setup",
+    "OVERVIEW",
+    "RUN EXPLORER",
+    "ABOUT & SETUP",
 ])
 
 with tab_overview:
@@ -120,4 +150,35 @@ with tab_about:
     about_tab.render(
         managed_tickers, df, save_tickers, status,
         PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH,
+    )
+
+# ── Programmatic tab navigation ─────────────────────────────────────────────
+# Streamlit's tabs API has no native "switch to tab N" call. Workaround:
+# inject a tiny iframe that runs JS in the parent window, finds the target
+# tab button via ARIA role (stable across versions), and clicks it. The
+# session_state flag is set by Overview-tab click handlers (master_table
+# verdict cells, featured_runs cards) and consumed here on the same rerun.
+_TAB_INDEX = {"overview": 0, "run_explorer": 1, "about": 2}
+_nav_target = st.session_state.pop("nav_to_tab", None)
+if _nav_target in _TAB_INDEX:
+    import streamlit.components.v1 as components
+    components.html(
+        f"""<script>
+        const idx = {_TAB_INDEX[_nav_target]};
+        const sel = '[role="tab"]';
+        function switchTab() {{
+            const tabs = window.parent.document.querySelectorAll(sel);
+            if (tabs && tabs[idx]) {{
+                tabs[idx].click();
+                return true;
+            }}
+            return false;
+        }}
+        if (!switchTab()) {{
+            // Tab list not in DOM yet — retry briefly.
+            const t = setInterval(() => {{ if (switchTab()) clearInterval(t); }}, 50);
+            setTimeout(() => clearInterval(t), 1000);
+        }}
+        </script>""",
+        height=0,
     )

@@ -12,20 +12,22 @@ import streamlit as st
 _MODES = [
     (
         "solo",
-        "One LLM call, full context dumped in. Fast baseline.",
+        "Single LLM call with all data sources. Baseline.",
     ),
     (
         "core",
-        "Default mode. Three-step adversarial debate flips ~30% of solo's verdicts.",
+        "Three LLM calls with adversarial debate, which usually flips ~30% "
+        "of solo's verdicts.",
     ),
     (
         "full",
-        "TradingAgents framework — seven-agent debate. Most thorough, slowest.",
+        "Wrapper for TradingAgents (not installed by default). Seven-agent "
+        "debate. Slowest.",
     ),
     (
         "agent",
-        "Autonomous tool-calling loop. Picks which data sources to query and "
-        "when, based on what it learns.",
+        "Autonomous tool-calling loop. Picks its own data sources to query "
+        "and when, at its own discretion.",
     ),
 ]
 
@@ -38,8 +40,8 @@ def render(df):
 
 def _table_md(df):
     header = (
-        "| Mode | Avg latency | Avg tokens | When to use |\n"
-        "|------|-------------|------------|-------------|"
+        "| Mode | Avg latency | Avg tokens | Usage |\n"
+        "|------|-------------|------------|-------|"
     )
     rows = []
     for mode, when_to_use in _MODES:

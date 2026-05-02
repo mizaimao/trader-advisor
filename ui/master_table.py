@@ -80,8 +80,8 @@ def _decision_emoji_label(val):
 def render(managed_tickers, df, status):
     st.subheader("Ticker Overview")
     st.caption(
-        "Click a verdict cell to load that run in the **Run Explorer** tab. "
-        "Cells with no run are disabled."
+        "Click any cell to open that run in the Run Explorer. "
+        "Empty cells (—) are disabled."
     )
 
     master_df = build_master_df(managed_tickers, df)
@@ -95,7 +95,7 @@ def render(managed_tickers, df, status):
         is_running = status["status"] == "running" and status["current"] == ticker
         cols = st.columns(COL_WEIGHTS)
 
-        # Ticker — clickable button (sets target_ticker for the Run Explorer)
+        # Ticker — clickable button (sets target_ticker + triggers tab nav)
         ticker_label = f"⚙️ {ticker}" if is_running else ticker
         if cols[0].button(
             ticker_label,
@@ -104,7 +104,7 @@ def render(managed_tickers, df, status):
             help=f"Open {ticker} in the Run Explorer tab",
         ):
             st.session_state["target_ticker"] = ticker
-            st.toast(f"Selected {ticker}. Open the **🔍 Run Explorer** tab →")
+            st.session_state["nav_to_tab"] = "run_explorer"
 
         # Earn (days to earnings)
         edays = row.get("earnings_days")
@@ -136,6 +136,4 @@ def render(managed_tickers, df, status):
             ):
                 st.session_state["target_ticker"] = ticker
                 st.session_state["target_mode"] = mode
-                st.toast(
-                    f"Selected {ticker} ({mode}). Open the **🔍 Run Explorer** tab →"
-                )
+                st.session_state["nav_to_tab"] = "run_explorer"

@@ -185,7 +185,4 @@ def _render_card(pick):
         st.session_state["target_ticker"] = ticker
         st.session_state["target_mode"] = "agent"
         st.session_state["target_run_id"] = int(row["id"])
-        st.toast(
-            f"Loading run #{row['id']} ({ticker}). "
-            f"Open the **🔍 Run Explorer** tab →"
-        )
+        st.session_state["nav_to_tab"] = "run_explorer"
