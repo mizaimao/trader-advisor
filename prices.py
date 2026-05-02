@@ -38,8 +38,44 @@ def _fetch_with_cache(ticker, granularity, period, interval):
     return df
 
 
+tool_get_price_context: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "get_price_context",
+        "description": (
+            "Multi-timeframe price snapshot: last 30 daily candles, 1y weekly candles, "
+            "5y monthly candles, plus a Quick Summary (current price, 30d/1y/5y change, "
+            "5y high/low and distance from current). Almost always the first tool to call — "
+            "it establishes the trend setup across timeframes, reveals whether the stock is "
+            "at a regime extreme (near 5y high or low), and informs which follow-up tools "
+            "matter (e.g. insider/options if near 5y high, news/sector if anomalous moves)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def get_price_context(ticker):
-    """Returns a multi-timeframe text block for the analysis prompt."""
+    """Build the multi-timeframe price text block.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        Markdown text with four sections: Quick Summary (current, 30d/1y/5y
+        % change, 5y high/low with % from current), then daily, weekly, and
+        monthly candle tables (OHLCV). Returns an error string on yfinance
+        failure rather than raising.
+    """
     sections = []
 
     try:

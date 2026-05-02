@@ -75,7 +75,46 @@ def _compute_indicator(df, indicator):
     raise ValueError(f"Unknown indicator: {indicator}")
 
 
-def get_indicator_text(ticker, indicator, today_str, days_back=30):
+tool_get_indicator_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "get_indicator_text",
+        "description": (
+            "Get formatted indicator text. Returns the indicator value for each "
+            "calendar day in the window, with non-trading days shown as N/A. "
+            "Output ends with a description of how to interpret this indicator. "
+            "Use one indicator per call — issue separate calls for MACD, RSI, etc."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+                "indicator": {
+                    "type": "string",
+                    "description": (
+                        "Which indicator to compute. One of: "
+                        "'macd' (momentum / trend-change signal), "
+                        "'rsi' (overbought >70 / oversold <30), "
+                        "'close_50_sma' (medium-term trend, dynamic support/resistance), "
+                        "'close_10_ema' (short-term momentum, faster than SMA)."
+                    ),
+                    "enum": ["macd", "rsi", "close_50_sma", "close_10_ema"],
+                },
+                "days_back": {
+                    "type": "integer",
+                    "description": "Calendar-day window ending at today. Default 30. Non-trading days appear as N/A.",
+                },
+            },
+            "required": ["ticker", "indicator"],
+        },
+    },
+}
+
+
+def get_indicator_text(ticker: str, indicator: str, today_str: str = None, days_back: int=30):
     """Returns formatted indicator text matching TradingAgents output structure.
 
     Output shape:
@@ -87,6 +126,8 @@ def get_indicator_text(ticker, indicator, today_str, days_back=30):
 
         <indicator description>
     """
+    if today_str is None:
+        today_str = datetime.now().strftime("%Y-%m-%d")
     df = _fetch_history(ticker)
     if df.empty:
         return f"No data available for {ticker}."
