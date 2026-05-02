@@ -2,8 +2,16 @@
 
 Mermaid needs an iframe to execute its module script (CSP/script-type
 restrictions). st.html doesn't execute scripts; components.html does.
-The deprecation warning on components.html is harmless until Streamlit's
-st.iframe API ships.
+
+Implementation notes:
+- `startOnLoad: false` + explicit `mermaid.run()` is the modern pattern
+  recommended over `startOnLoad: true`, which had reliability issues in
+  iframe contexts where the script may run before the DOM is fully parsed.
+- Pinning mermaid 11 (current as of 2026); 10 had occasional rendering
+  hangs in some browsers/Streamlit combos that left empty placeholders.
+- `htmlLabels: true` enables `<br/>` line breaks inside node labels.
+- The post-render SVG is constrained to container width so it doesn't
+  overflow the iframe.
 """
 import streamlit.components.v1 as components
 
@@ -15,7 +23,11 @@ def render(code: str, height: int = 600):
 <style>
   body {{ margin: 0; padding: 0; background: #0e0e1a; font-family: sans-serif; }}
   .container {{ background:#0e0e1a; padding:16px; }}
-  pre.mermaid {{ background:transparent; margin:0; }}
+  .mermaid {{ background:transparent; margin:0; text-align: center; }}
+  .mermaid svg {{ max-width: 100%; height: auto; }}
+  .mermaid-error {{ color: #ff6b6b; font-family: monospace; padding: 12px;
+                   background: rgba(255,107,107,0.08); border-radius: 6px;
+                   white-space: pre-wrap; }}
 </style>
 </head>
 <body>
@@ -25,10 +37,11 @@ def render(code: str, height: int = 600):
 </pre>
 </div>
 <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
     mermaid.initialize({{
-        startOnLoad: true,
+        startOnLoad: false,
         theme: 'dark',
+        securityLevel: 'loose',
         themeVariables: {{
             primaryColor: '#1a1a2e',
             primaryTextColor: '#e8e8e8',
@@ -40,8 +53,17 @@ def render(code: str, height: int = 600):
             mainBkg: '#1a1a2e',
             secondBkg: '#232342',
         }},
-        flowchart: {{ curve: 'basis', padding: 16 }},
+        flowchart: {{ curve: 'basis', padding: 16, htmlLabels: true }},
     }});
+    try {{
+        await mermaid.run({{ querySelector: '.mermaid' }});
+    }} catch (err) {{
+        const el = document.querySelector('.mermaid');
+        if (el) {{
+            el.outerHTML = '<div class="mermaid-error">Mermaid render failed: '
+                + (err && err.message ? err.message : String(err)) + '</div>';
+        }}
+    }}
 </script>
 </body>
 </html>"""

@@ -10,7 +10,7 @@ tool schema's `description` field is written and tuned independently from the Py
 
 
 1. Final analysis loses nuance from intermediate reasoning.
-2.  Agent forgets its own plan across turns. ~ num_ctx???
+2. Agent forgets its own plan across turns. ~ num_ctx???
 3. Agent flags questions but doesn't follow through.
 4. Strategy branches don't fire reliably.
 5. News tool returns mostly off-topic articles.
@@ -34,3 +34,6 @@ That means even if I fix the streamlit bug it will still need keys from e.g. alp
 We should disable live-run mode entirely, and design demo as a static showboard.
 
 Anoter pain is the dashboard: now it's awfully long and impractical. I need to group the items so they are much more organized.
+1. I can stay with streamlit but use tabs to group them
+2. I can switch to a different stack, but this will be very painful.
+

@@ -46,62 +46,67 @@ CORE_PIPELINE_DIAGRAM = """flowchart LR
 
 
 # ── compact hero (Overview tab) ──────────────────────────────────────────────
+# No outer box, no gradient. Heading hierarchy + capsule strip carry the visual
+# weight on their own. Capsules keep the accent-blue left border so they read
+# as "metric tiles" rather than just text blocks.
 _COMPACT_STYLE = """<style>
-.hero-compact {
-    background: linear-gradient(135deg, #1a1a2e 0%, #232342 100%);
-    padding: 18px 28px;
-    border-radius: 10px;
-    margin-bottom: 12px;
-    border: 1px solid #2a4a6a;
+.hero-tagline {
+    font-size: 14px; color: #888; margin-top: -8px; margin-bottom: 16px;
 }
-.hero-compact-title { font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 4px; }
-.hero-compact-tagline { font-size: 13px; color: #cbd5e0; margin-bottom: 14px; }
-.hero-compact-features { display: flex; gap: 16px; flex-wrap: wrap; }
-.hero-compact-feature {
-    background: rgba(255,255,255,0.04); padding: 8px 14px; border-radius: 6px;
-    border-left: 3px solid #4a90d9; min-width: 110px;
+.hero-tagline a { color: #7ab8f5; text-decoration: none; }
+.hero-tagline a:hover { text-decoration: underline; }
+.hero-capsules { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.hero-capsule {
+    background: rgba(255,255,255,0.04); padding: 10px 16px; border-radius: 6px;
+    border-left: 3px solid #4a90d9; min-width: 130px;
 }
-.hero-compact-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-.hero-compact-value { font-size: 20px; color: #e8e8e8; margin-top: 2px; font-weight: 600; }
-.hero-compact-sub { font-size: 11px; color: #888; margin-top: 1px; }
+.hero-capsule-label {
+    font-size: 10px; color: #888;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.hero-capsule-value {
+    font-size: 22px; color: #e8e8e8; margin-top: 2px; font-weight: 600;
+}
+.hero-capsule-sub { font-size: 11px; color: #888; margin-top: 1px; }
 </style>"""
 
 
 def render_compact():
-    """Compact 4-capsule metric strip for the Overview tab."""
+    """Title (h1) + muted subtitle + 4 capsules. No outer box."""
     st.markdown(_COMPACT_STYLE, unsafe_allow_html=True)
-    html = (
-        '<div class="hero-compact">'
-        '<div class="hero-compact-title">📈 Multi-mode stock analysis pipeline</div>'
-        '<div class="hero-compact-tagline">'
+    st.title("📈 Multi-mode stock analysis pipeline")
+    st.markdown(
+        '<div class="hero-tagline">'
         'Three workflow modes plus an autonomous tool-use agent. '
-        '<a href="https://github.com/mizaimao/trader-advisor" target="_blank" '
-        'style="color:#7ab8f5;text-decoration:none;">repo →</a>'
-        '</div>'
-        '<div class="hero-compact-features">'
-        '<div class="hero-compact-feature"><div class="hero-compact-label">Modes</div>'
-        '<div class="hero-compact-value">4</div>'
-        '<div class="hero-compact-sub">solo · core · full · agent</div></div>'
-        '<div class="hero-compact-feature"><div class="hero-compact-label">Data sources</div>'
-        '<div class="hero-compact-value">10</div>'
-        '<div class="hero-compact-sub">price, options, sentiment...</div></div>'
-        '<div class="hero-compact-feature"><div class="hero-compact-label">Stack</div>'
-        '<div class="hero-compact-value">4</div>'
-        '<div class="hero-compact-sub">Streamlit · LangChain · SQLite · Plotly</div></div>'
-        '<div class="hero-compact-feature"><div class="hero-compact-label">LLMs</div>'
-        '<div class="hero-compact-value">5+</div>'
-        '<div class="hero-compact-sub">Gemma · Gemini · Claude · GPT...</div></div>'
-        '</div>'
-        '</div>'
+        '<a href="https://github.com/mizaimao/trader-advisor" target="_blank">'
+        'GitHub repo →</a>'
+        '</div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hero-capsules">'
+        '<div class="hero-capsule"><div class="hero-capsule-label">Modes</div>'
+        '<div class="hero-capsule-value">4</div>'
+        '<div class="hero-capsule-sub">solo · core · full · agent</div></div>'
+        '<div class="hero-capsule"><div class="hero-capsule-label">Data sources</div>'
+        '<div class="hero-capsule-value">10</div>'
+        '<div class="hero-capsule-sub">price, options, sentiment...</div></div>'
+        '<div class="hero-capsule"><div class="hero-capsule-label">Stack</div>'
+        '<div class="hero-capsule-value">4</div>'
+        '<div class="hero-capsule-sub">Streamlit · LangChain · SQLite · Plotly</div></div>'
+        '<div class="hero-capsule"><div class="hero-capsule-label">LLMs</div>'
+        '<div class="hero-capsule-value">5+</div>'
+        '<div class="hero-capsule-sub">Gemma · Gemini · Claude · GPT...</div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ── architecture (About tab) ─────────────────────────────────────────────────
 def render_architecture():
-    """Mermaid architecture diagrams for the About tab. No expander — caller
-    decides whether to wrap (the About tab renders these inline since the
-    tab itself is the 'details' view)."""
+    """Mermaid architecture diagrams. Caller decides whether to wrap in an
+    expander (the Overview tab does so to keep the diagrams discoverable
+    but collapsed)."""
     st.markdown(
         "**Data flow** — all four modes share data sources, but only the "
         "agent drives them itself (the dashed arrow):"
@@ -110,14 +115,6 @@ def render_architecture():
 
     st.markdown("**Core-mode pipeline** — three-call adversarial panel:")
     render_mermaid(CORE_PIPELINE_DIAGRAM, height=240)
-
-    st.markdown(
-        "**Why core is the default** — three sequential LLM calls play different "
-        "roles. The devil's advocate is forced to argue *against* the initial "
-        "analyst, and the synthesizer weighs both sides. In practice this flips "
-        "~30% of decisions, usually from over-bullish initial reads to more "
-        "cautious final calls."
-    )
 
 
 # ── BYOK form (About tab) ────────────────────────────────────────────────────
