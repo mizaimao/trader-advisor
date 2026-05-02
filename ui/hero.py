@@ -1,21 +1,35 @@
-"""Demo-mode landing/hero section."""
+"""Hero / landing components.
+
+Three exported entry points used by the new tab structure:
+
+- `render_compact()`      — small capsule strip for the Overview tab
+- `render_architecture()` — mermaid architecture diagrams for the About tab
+- `render_byok()`         — provider/key/Ollama-URL form for the About tab
+                            (visible-but-disabled in demo per the top banner)
+
+The previous monolithic `render()` is gone — the tab orchestrators
+(`overview_tab.py`, `about_tab.py`) compose the right pieces in the right places.
+"""
 import streamlit as st
 
 from .mermaid import render as render_mermaid
-from .providers import PROVIDERS, PROVIDER_LABELS, get_by_label
+from .providers import PROVIDER_LABELS, get_by_label
 
 
-# ── architecture diagrams ─────────────────────────────────────────────────────
+# ── architecture diagrams ────────────────────────────────────────────────────
 DATA_FLOW_DIAGRAM = """flowchart LR
-    Sources["9 Data Sources<br/>price · earnings · insider · options<br/>sector · stocktwits · reddit · news · fundamentals"] --> Context[fetch_context]
+    Sources["10 Data Sources<br/>price · indicators · fundamentals<br/>earnings · insider · options<br/>sector · stocktwits · reddit · news"] --> Context[fetch_context]
 
     Context --> Solo[solo · 1 call · ~30s]
     Context --> Core[core · 3 calls · ~60s]
     Context --> Full[full · 7 agents · 5-15min]
 
+    Sources -.tools.-> Agent[agent · tool-use loop · ~60-120s]
+
     Solo --> DB[(SQLite)]
     Core --> DB
     Full --> DB
+    Agent --> DB
 
     DB --> UI[Streamlit Dashboard]
     DB --> Bot[Telegram Bot]
@@ -31,106 +45,91 @@ CORE_PIPELINE_DIAGRAM = """flowchart LR
 """
 
 
-# ── styling ───────────────────────────────────────────────────────────────────
-_STYLE = """<style>
-.hero-box {
+# ── compact hero (Overview tab) ──────────────────────────────────────────────
+_COMPACT_STYLE = """<style>
+.hero-compact {
     background: linear-gradient(135deg, #1a1a2e 0%, #232342 100%);
-    padding: 32px 40px;
-    border-radius: 12px;
-    margin-bottom: 16px;
+    padding: 18px 28px;
+    border-radius: 10px;
+    margin-bottom: 12px;
     border: 1px solid #2a4a6a;
 }
-.hero-title { font-size: 36px; font-weight: 700; color: #ffffff; margin-bottom: 8px; }
-.hero-tagline { font-size: 17px; color: #cbd5e0; margin-bottom: 22px; line-height: 1.6; }
-.hero-features { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 26px; }
-.hero-feature {
-    background: rgba(255,255,255,0.04); padding: 10px 16px; border-radius: 6px;
-    border-left: 3px solid #4a90d9; min-width: 130px;
+.hero-compact-title { font-size: 22px; font-weight: 700; color: #ffffff; margin-bottom: 4px; }
+.hero-compact-tagline { font-size: 13px; color: #cbd5e0; margin-bottom: 14px; }
+.hero-compact-features { display: flex; gap: 16px; flex-wrap: wrap; }
+.hero-compact-feature {
+    background: rgba(255,255,255,0.04); padding: 8px 14px; border-radius: 6px;
+    border-left: 3px solid #4a90d9; min-width: 110px;
 }
-.hero-feature-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-.hero-feature-value { font-size: 22px; color: #e8e8e8; margin-top: 2px; font-weight: 600; }
-.hero-feature-sub { font-size: 11px; color: #888; margin-top: 2px; }
-.hero-section-heading {
-    font-size: 12px; font-weight: 700; color: #7ab8f5;
-    text-transform: uppercase; letter-spacing: 1.2px; margin: 18px 0 10px 0;
-}
-.hero-bullets { color: #cbd5e0; font-size: 14px; line-height: 1.65; margin: 0 0 6px 0; padding-left: 22px; }
-.hero-bullets li { margin-bottom: 8px; }
-.hero-bullets b { color: #ffd966; font-weight: 600; }
-.hero-bullets code {
-    background: rgba(255,255,255,0.06); padding: 1px 6px;
-    border-radius: 3px; font-size: 12px; color: #ffd966;
-}
-.hero-bullets .meta { color: #888; font-size: 12px; }
-.hero-links { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08); }
-.hero-links a { color: #7ab8f5; text-decoration: none; font-size: 14px; margin-right: 18px; }
-.hero-links a:hover { text-decoration: underline; }
+.hero-compact-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+.hero-compact-value { font-size: 20px; color: #e8e8e8; margin-top: 2px; font-weight: 600; }
+.hero-compact-sub { font-size: 11px; color: #888; margin-top: 1px; }
 </style>"""
 
 
-def render():
-    st.markdown(_STYLE, unsafe_allow_html=True)
-
+def render_compact():
+    """Compact 4-capsule metric strip for the Overview tab."""
+    st.markdown(_COMPACT_STYLE, unsafe_allow_html=True)
     html = (
-'<div class="hero-box">'
-'<div class="hero-title">📈 Multi-agent stock analysis pipeline</div>'
-'<div style="font-size:13px;color:#888;margin-top:-6px;margin-bottom:14px;letter-spacing:0.3px;">'
-'<a href="https://github.com/mizaimao/trader-advisor" target="_blank" '
-'style="color:#7ab8f5;text-decoration:none;">trader-advisor</a> · public repo'
-'</div>'
-'<div class="hero-tagline">'
-'Multi-mode stock analysis dashboard. '
-'Three pipelines — solo analyst, adversarial panel, seven-agent debate — '
-'fed by nine independent data sources, with every run journaled.'
-'</div>'
-'<div class="hero-features">'
-'<div class="hero-feature"><div class="hero-feature-label">Modes</div><div class="hero-feature-value">4</div><div class="hero-feature-sub">solo · core · full · agent</div></div>'
-'<div class="hero-feature"><div class="hero-feature-label">Data sources</div><div class="hero-feature-value">9</div><div class="hero-feature-sub">price, options, sentiment...</div></div>'
-'<div class="hero-feature"><div class="hero-feature-label">Stack</div><div class="hero-feature-value">4</div><div class="hero-feature-sub">Streamlit · LangChain · SQLite · Plotly</div></div>'
-'<div class="hero-feature"><div class="hero-feature-label">LLMs</div><div class="hero-feature-value">5+</div><div class="hero-feature-sub">Gemma · Gemini · Claude · GPT...</div></div>'
-'</div>'
-'<div class="hero-section-heading">Analysis Modes</div>'
-'<ul class="hero-bullets">'
-'<li><b>solo</b> — single LLM call with full context. <span class="meta">~30s · ~18K tokens</span></li>'
-'<li><b>core</b> <span class="meta">(default)</span> — three-agent adversarial panel. Initial Analyst forms a thesis, Devil\'s Advocate argues against it, Synthesizer weighs both sides. Flips ~30% of decisions. <span class="meta">~60s · ~55K tokens</span></li>'
-'<li><b>full</b> — 7-agent debate via TradingAgents. Most thorough, most expensive. Disabled in this demo. <span class="meta">5–15 min · ~400K tokens</span></li>'
-'<li><b>agent</b> — autonomous tool-use loop. The LLM picks which of 11 data sources to query, in what order, based on what it learns each step. Bounded by a tool-call budget. <span class="meta">~60–120s · variable tokens</span></li>'
-'</ul>'
-'<div class="hero-section-heading">Highlights</div>'
-'<ul class="hero-bullets">'
-'<li><b>Adversarial pipeline built from scratch</b> — no LangGraph, no CrewAI. Plain Python orchestration of LangChain calls, every prompt and branch visible.</li>'
-'<li><b>Nine data sources the agents reason over</b> — price, fundamentals, options flow, insider activity, earnings, sector context, news, StockTwits, Reddit. Each toggleable in the Data Sources panel below.</li>'
-'<li><b>Provider-agnostic LLM layer</b> — runs on cloud or locally. Supports <code>ollama</code> (local), <code>gemini</code>, <code>anthropic</code>, <code>openai</code>. One config switch, no prompt rewrites.</li>'
-'<li><b>Persistent decision history</b> — every run stored with full context, prompts, token cost, and runtime. A journal of how the agents reason over time.</li>'
-'</ul>'
-'<div class="hero-links">'
-'<a href="https://github.com/mizaimao/trader-advisor" target="_blank">GitHub →</a>'
-'</div>'
-'</div>'
+        '<div class="hero-compact">'
+        '<div class="hero-compact-title">📈 Multi-mode stock analysis pipeline</div>'
+        '<div class="hero-compact-tagline">'
+        'Three workflow modes plus an autonomous tool-use agent. '
+        '<a href="https://github.com/mizaimao/trader-advisor" target="_blank" '
+        'style="color:#7ab8f5;text-decoration:none;">repo →</a>'
+        '</div>'
+        '<div class="hero-compact-features">'
+        '<div class="hero-compact-feature"><div class="hero-compact-label">Modes</div>'
+        '<div class="hero-compact-value">4</div>'
+        '<div class="hero-compact-sub">solo · core · full · agent</div></div>'
+        '<div class="hero-compact-feature"><div class="hero-compact-label">Data sources</div>'
+        '<div class="hero-compact-value">10</div>'
+        '<div class="hero-compact-sub">price, options, sentiment...</div></div>'
+        '<div class="hero-compact-feature"><div class="hero-compact-label">Stack</div>'
+        '<div class="hero-compact-value">4</div>'
+        '<div class="hero-compact-sub">Streamlit · LangChain · SQLite · Plotly</div></div>'
+        '<div class="hero-compact-feature"><div class="hero-compact-label">LLMs</div>'
+        '<div class="hero-compact-value">5+</div>'
+        '<div class="hero-compact-sub">Gemma · Gemini · Claude · GPT...</div></div>'
+        '</div>'
+        '</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
 
-    # Architecture
-    with st.expander("🏗 Architecture", expanded=False):
-        st.markdown("**Data flow — all three modes share a common context-fetching pipeline:**")
-        render_mermaid(DATA_FLOW_DIAGRAM, height=420)
-        st.markdown("**Core mode pipeline — adversarial 3-call panel:**")
-        render_mermaid(CORE_PIPELINE_DIAGRAM, height=240)
-        st.markdown(
-            "**Why core mode is the default and the most interesting** — three sequential LLM calls "
-            "play different roles. The devil's advocate is forced to argue *against* the initial analyst, "
-            "and the synthesizer weighs both sides. In practice this flips ~30% of decisions, usually "
-            "from over-bullish initial reads to more cautious final calls."
-        )
 
-    # Try it yourself — provider dropdown + key
+# ── architecture (About tab) ─────────────────────────────────────────────────
+def render_architecture():
+    """Mermaid architecture diagrams for the About tab. No expander — caller
+    decides whether to wrap (the About tab renders these inline since the
+    tab itself is the 'details' view)."""
+    st.markdown(
+        "**Data flow** — all four modes share data sources, but only the "
+        "agent drives them itself (the dashed arrow):"
+    )
+    render_mermaid(DATA_FLOW_DIAGRAM, height=420)
+
+    st.markdown("**Core-mode pipeline** — three-call adversarial panel:")
+    render_mermaid(CORE_PIPELINE_DIAGRAM, height=240)
+
+    st.markdown(
+        "**Why core is the default** — three sequential LLM calls play different "
+        "roles. The devil's advocate is forced to argue *against* the initial "
+        "analyst, and the synthesizer weighs both sides. In practice this flips "
+        "~30% of decisions, usually from over-bullish initial reads to more "
+        "cautious final calls."
+    )
+
+
+# ── BYOK form (About tab) ────────────────────────────────────────────────────
+def render_byok():
+    """Provider/key/Ollama-URL form for the About tab. Read-only in demo."""
     with st.expander("🔑 Try it yourself (bring your own key)", expanded=False):
         st.caption("BYOK inputs are read-only in demo. See top banner for why.")
         st.markdown(
-            "🔒 **Sandbox & privacy:** your session runs in an isolated database that "
-            "disappears when you close this tab. Your API key lives only in browser "
-            "session memory — never logged, stored, or sent anywhere except your chosen "
-            "LLM provider."
+            "🔒 **Sandbox & privacy:** your session runs in an isolated database "
+            "that disappears when you close this tab. Your API key lives only in "
+            "browser session memory — never logged, stored, or sent anywhere "
+            "except your chosen LLM provider."
         )
 
         chosen_label = st.selectbox(
@@ -156,6 +155,9 @@ def render():
                 f"{entry['label']} server URL",
                 key="byok_ollama_url",
                 placeholder=entry["url_placeholder"],
-                help="If you run your own Ollama server, paste the URL here. Otherwise leave blank.",
+                help=(
+                    "If you run your own Ollama server, paste the URL here. "
+                    "Otherwise leave blank."
+                ),
                 disabled=True,
             )

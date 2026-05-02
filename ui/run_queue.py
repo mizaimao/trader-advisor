@@ -69,12 +69,19 @@ MODE_HINTS = {
 def render(managed_tickers, status, project_root, python_bin, runner_path):
     st.subheader("Run Queue")
 
-    queued = [t for t in managed_tickers if st.session_state.get(f"chk_{t}", False)]
+    # Own ticker selection — replaces the previous master_table checkbox-fed
+    # `chk_{ticker}` session_state pattern. Defaults to empty so the user has
+    # to deliberately pick (preserves the "explicit gesture" UX).
+    queued = st.multiselect(
+        "Tickers to run",
+        options=managed_tickers,
+        default=[],
+        key="run_queue_tickers",
+        disabled=DEMO_MODE,
+        help="Pick one or more tickers to queue. Defaults to empty.",
+    )
 
-    col_queue, col_mode, col_btn = st.columns([3, 2, 1])
-
-    with col_queue:
-        st.write(f"Queued: {', '.join(queued)}" if queued else "No tickers queued.")
+    col_mode, col_btn = st.columns([3, 1])
 
     with col_mode:
         # All 4 modes in both demo and prod. In demo every control below is
@@ -344,7 +351,9 @@ def _handle_click(
         else:
             proc = build_proc()
 
-        st.session_state["clear_queue"] = True
+        # Clear the multiselect after a successful spawn so the next click
+        # starts from an empty queue.
+        st.session_state["run_queue_tickers"] = []
         st.success(f"Job started (PID {proc.pid}) — provider {provider_entry['label']}")
         st.rerun()
     except Exception as e:
