@@ -76,8 +76,50 @@ def get_news_finnhub(ticker: str, start_date: str, end_date: str) -> str:
         return f"Error fetching news: {str(e)}"
 
 
+tool_get_earnings_calendar_finnhub: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "get_earnings_calendar_finnhub",
+        "description": (
+            "Detailed earnings event for the next scheduled report — date, EPS estimate, "
+            "revenue estimate, fiscal quarter/year, and the timing slot ('bmo' = before "
+            "market open, 'amc' = after market close). Use this when you need MORE than "
+            "just the countdown (`days_until_earnings` already gives that): specifically "
+            "to size the consensus bar (high estimates = higher disappointment risk on a "
+            "miss), or to know whether the report drops before open (likely gap) vs after "
+            "close (next-day reaction). Returns null if no earnings are scheduled within "
+            "the search window."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+                "days_ahead": {
+                    "type": "integer",
+                    "description": "How far ahead to search for the next earnings event. Default 90 covers a full quarterly cycle; rarely needs adjustment.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def get_earnings_calendar_finnhub(ticker, days_ahead=90):
-    """Returns next earnings date for a ticker, or None if no upcoming earnings within window."""
+    """Fetch the next scheduled earnings event for a ticker.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+        days_ahead: Search horizon in days (default 90 — one quarterly cycle).
+
+    Returns:
+        Dict with the earnings event details (date, epsEstimate, revenueEstimate,
+        hour, quarter, year, etc.) for the soonest scheduled report. Returns None
+        when no event falls within the window or on Finnhub failure. Never raises.
+    """
     from datetime import datetime, timedelta
     today = datetime.today().strftime("%Y-%m-%d")
     end = (datetime.today() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")

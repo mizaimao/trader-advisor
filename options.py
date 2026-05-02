@@ -89,8 +89,44 @@ def _yfinance_summary(ticker):
         return {"error": str(e)}
 
 
+tool_options_summary_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "options_summary_text",
+        "description": (
+            "Options activity snapshot — put/call volume ratio (with bullish/bearish/neutral "
+            "label), at-the-money implied volatility, an unusual-volume flag, and the nearest "
+            "expiry date. Useful for checking smart-money hedging near recent highs (high P/C "
+            "+ price near 5y high = caution), gauging expected near-term volatility ahead of "
+            "earnings (elevated ATM IV), or investigating unusual volume as a catalyst signal. "
+            "Skip for small caps or recent IPOs that lack liquid options."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def options_summary_text(ticker):
-    """Returns a one-line summary suitable for the analysis prompt."""
+    """One-line options summary text for prompt context.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        Pipe-separated string with present fields, e.g.
+        "P/C ratio: 0.85 (bullish-leaning) | ATM IV: 38.2% | near-expiry: 2026-05-16".
+        Returns None when the chain is unavailable, the ticker has no options,
+        or every field would be empty. Never raises.
+    """
     data = get_options_summary(ticker)
     if data.get("error"):
         return None

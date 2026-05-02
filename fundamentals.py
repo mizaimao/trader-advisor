@@ -41,8 +41,46 @@ FUNDAMENTAL_FIELDS = [
 ]
 
 
+tool_get_fundamentals_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "get_fundamentals_text",
+        "description": (
+            "Company fundamentals — name, sector, market cap, valuation ratios (PE, forward "
+            "PE, PEG, P/B), margins (profit, operating), EPS and free cash flow, debt-to-equity, "
+            "52-week range, and 50/200-day averages. For a SHORT-TERM trader this is risk "
+            "context, not the primary driver — useful for sanity-checking whether a technical "
+            "thesis is backed by underlying business quality (is a high PE justified by growth?), "
+            "spotting potential value traps (low PE + collapsing margins), or sizing position "
+            "risk before earnings."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def get_fundamentals_text(ticker):
-    """Returns formatted fundamentals text matching TradingAgents output."""
+    """Company fundamentals text for prompt context. Matches TradingAgent output.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        Multi-line string listing company info and key financial metrics
+        (valuation, margins, profitability, balance-sheet ratios, 52-week
+        range). Field order matches TradingAgents output for prompt continuity.
+        Returns an "unavailable" / "no data" string on yfinance failure rather
+        than raising.
+    """
     try:
         info = yf.Ticker(ticker).info
     except Exception as e:

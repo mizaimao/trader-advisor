@@ -90,8 +90,43 @@ def stocktwits_summary(ticker):
     }
 
 
+tool_stocktwits_summary_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "stocktwits_summary_text",
+        "description": (
+            "Retail-trader sentiment from StockTwits — last 30 messages tagged bullish/bearish "
+            "with percentages and a coarse label (strongly bullish / leaning bearish / mixed). "
+            "Useful as a momentum-confirmation signal on small/mid caps where retail flow can "
+            "move the tape. On mega-caps StockTwits is mostly noise and shouldn't drive "
+            "decisions; treat as a confirmation-only signal, never a primary driver. Skip if "
+            "the question is fundamental rather than flow-driven."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def stocktwits_summary_text(ticker):
-    """Returns a short text summary for the prompt context block."""
+    """One-line StockTwits sentiment summary for prompt context.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        String like "StockTwits (last 30 messages): 60% bullish, 13% bearish
+        (22/30 tagged) — leaning bullish". Returns None on fetch failure or
+        when the ticker has no recent messages. Never raises.
+    """
     s = stocktwits_summary(ticker)
     if s.get("error"):
         return None
@@ -194,8 +229,45 @@ def reddit_summary(ticker, max_age_minutes=15):
     }
 
 
+tool_reddit_summary_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "reddit_summary_text",
+        "description": (
+            "Reddit mention chatter via ApeWisdom — only the top ~100 trending tickers across "
+            "stocks subs (wallstreetbets, stocks, investing) are tracked, so absence from the "
+            "list is itself a signal of low retail attention. When present, returns rank, 24h "
+            "mention count and delta vs prior 24h, and a sentiment score 0-100. Useful for "
+            "deciding whether a recent price move has retail momentum behind it (mention spike "
+            "+ rising sentiment) or is institutional-driven (price moves without chatter). "
+            "Sudden surges (>100% vs prior 24h) warrant attention regardless of sentiment direction."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def reddit_summary_text(ticker):
-    """Short prompt-friendly summary."""
+    """Short Reddit-mention summary for prompt context.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        Multi-line string with rank, mention counts, 24h delta, and sentiment
+        score when the ticker is in ApeWisdom's top trending list. Returns
+        "{ticker} is not in the top ~100 trending tickers on Reddit (low chatter)."
+        when absent — that absence is itself signal. Never raises.
+    """
     s = reddit_summary(ticker)
     if not s.get("trending"):
         return f"{ticker} is not in the top ~100 trending tickers on Reddit (low chatter)."
