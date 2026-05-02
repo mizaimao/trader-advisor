@@ -22,6 +22,7 @@ from ui import (
     dd_metadata,
     dd_price_chart,
     dd_analysis,
+    dd_agent_trace,
     dd_insider,
     dd_options,
     dd_sentiment,
@@ -165,6 +166,14 @@ if ticker_pick and not df.empty:
                 dd_price_chart.render(ticker_pick)
 
             st.divider()
+
+            # Agent trace renders ABOVE the analysis paragraph: tells the
+            # journey before the verdict. Only fires when this run was
+            # produced by the --agent mode.
+            if (row.get("mode") or "").lower() == "agent":
+                dd_agent_trace.render(row)
+                st.divider()
+
             dd_analysis.render(row)
 
             dd_insider.render(ticker_pick)

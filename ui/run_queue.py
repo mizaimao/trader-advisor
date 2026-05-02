@@ -175,6 +175,19 @@ def _handle_click(queued, run_mode, provider_entry, status, project_root, python
         st.error("A job is already running.")
         return
 
+    # Pre-flight: agent mode is currently Ollama-only. The loop hardcodes the
+    # OpenAI-compatible client + base_url; routing an Anthropic/OpenAI key to
+    # the Ollama endpoint just produces an auth failure. Anthropic/OpenAI
+    # adapter lands in Phase 1 Step 9; until then, gate it here.
+    if run_mode == "agent" and not provider_entry["is_local"]:
+        st.error(
+            "Agent mode currently requires an Ollama provider. "
+            f"**{provider_entry['label']}** support is on the roadmap (Phase 1 Step 9). "
+            "Either pick **Ollama (local)** with a reachable server, or run **solo** / "
+            f"**core** with {provider_entry['label']}."
+        )
+        return
+
     # Pre-flight: if provider needs a key, it must be present in session_state
     if DEMO_MODE and provider_entry["needs_key"]:
         key = st.session_state.get("byok_api_key")
