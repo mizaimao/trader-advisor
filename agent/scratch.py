@@ -27,8 +27,8 @@ from sentiment import (
 DEFAULT_MODEL: str = "gpt-oss:20b"
 DEFAULT_MAX_TOOL_CALLS: int = 10
 
-# Ollama-specific.
-OLLAMA_OPTIONS: dict[str, Any] = {"num_ctx": 32768}
+# Ollama-specific. Default temp is 0.8 and it gets too creative.
+OLLAMA_OPTIONS: dict[str, Any] = {"num_ctx": 32768, "temperature": 0.3}
 AGENT_SYSTEM: str = """
 You are a stock trading advisor and the user would ask you a specific stock to analyze.
 The user would want you to gather data, potentially from different sources and angles to perform the analysis.

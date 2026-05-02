@@ -4,16 +4,16 @@
 
 Decision: `gpt-oss:20b` on the ml39 Ollama server is the v1 default; `gemma4:26b` is the local fallback. No automatic fallback logic.
 
-Qwen3.6 35B-A3B Q4_K_M doesn't fit
+Qwen3.6 35B-A3B Q4_K_M doesn't fit. Model alone is 24GB.
 
 tool schema's `description` field is written and tuned independently from the Python function's docstring. 
 
 
-1. **Final analysis loses nuance from intermediate reasoning.** S
-2. **Agent forgets its own plan across turns.** num_ctx???
-3. **Agent flags questions but doesn't follow through.** 
-4. **Strategy branches don't fire reliably.** 
-5. **News tool returns mostly off-topic articles.** 
+1. Final analysis loses nuance from intermediate reasoning.
+2.  Agent forgets its own plan across turns. ~ num_ctx???
+3. Agent flags questions but doesn't follow through.
+4. Strategy branches don't fire reliably.
+5. News tool returns mostly off-topic articles.
 
 Need to write new tools for the agent
 
@@ -21,4 +21,4 @@ Some tools/function calls may return empty or None objects. Need to deal with it
 
 The sector information should be fine-tuned by each stock as the current default is not a great reflection.
 
-GPT-OSS 20B sometimes decides to terminate the loop early, and sometimes requests weird tickers like "NVUPCOMING"
+GPT-OSS 20B sometimes decides to terminate the loop early, and sometimes requests weird tickers like "NVUPCOMING". Tuned down temp to 0.3 now.
