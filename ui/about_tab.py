@@ -1,27 +1,17 @@
-"""About & Setup tab — operational controls + clone instructions.
+"""About & Setup tab — pure documentation (no interactive run controls).
 
-Slimmer than before: mode comparison and architecture moved to the Overview tab
-so they're visible without scrolling into here. This tab is now just the
-"how do I run it / configure it" surface.
+Run config (BYOK + Run Queue) lives in the top-right "⚡ Run Analysis" modal
+now. This tab is just docs and operational data-management surfaces:
 
-Sections:
-1. About — one-line tagline
-2. Setup — clone/install CLI block
-3. BYOK panel (read-only in demo)
-4. Run Queue (disabled in demo)
-5. Manage Tickers (read-only in demo)
-6. Data Sources (read-only in demo)
-
-Footer with GitHub / NOTES / spec links + license.
+1. About paragraph
+2. Setup CLI block (clone, .env, pip install, streamlit run)
+3. Data Sources panel (read-only in demo)
+4. Manage Tickers panel (read-only in demo) — data management, not run config
+5. Footer (GitHub / NOTES.md / Phase 1 spec / license)
 """
 import streamlit as st
 
-from . import (
-    hero,
-    ticker_management,
-    data_sources,
-    run_queue,
-)
+from . import ticker_management, data_sources
 from .demo import DEMO_MODE
 
 
@@ -48,22 +38,13 @@ def render(
         language="bash",
     )
 
-    # ── 3. BYOK panel ─────────────────────────────────────────────────────
-    hero.render_byok()
-
-    # ── 4. Run Queue ──────────────────────────────────────────────────────
-    st.divider()
-    run_queue.render(
-        managed_tickers, status, project_root, python_bin, runner_path,
-    )
-
-    # ── 5. Manage Tickers ─────────────────────────────────────────────────
-    st.divider()
-    ticker_management.render(managed_tickers, save_tickers, demo_mode=DEMO_MODE)
-
-    # ── 6. Data Sources ───────────────────────────────────────────────────
+    # ── 3. Data Sources panel ─────────────────────────────────────────────
     st.divider()
     data_sources.render()
+
+    # ── 4. Manage Tickers panel ───────────────────────────────────────────
+    st.divider()
+    ticker_management.render(managed_tickers, save_tickers, demo_mode=DEMO_MODE)
 
     # ── Footer ────────────────────────────────────────────────────────────
     st.divider()
