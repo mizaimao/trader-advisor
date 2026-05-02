@@ -111,8 +111,47 @@ def get_sector_context(ticker):
 
     return result
 
+tool_sector_summary_text: dict[str, str] = {
+    "type": "function",
+    "function": {
+        "name": "sector_summary_text",
+        "description": (
+            "Sector and macro performance comparison — the ticker's auto-detected sector, "
+            "its sector ETF, and percent changes for the ticker, the sector ETF, SPY, and "
+            "QQQ over 1d / 5d / 1mo windows, plus the ticker's relative performance vs SPY. "
+            "Useful for separating company-specific moves from macro/sector moves: a ticker "
+            "outperforming both its sector and SPY is showing genuine name-specific strength; "
+            "a ticker underperforming a strong sector is a yellow flag for rotation away. "
+            "Use 1d for entry timing, 5d/1mo for trend confirmation."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. 'NVDA'.",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+}
+
+
 def sector_summary_text(ticker):
-    """Returns a short summary suitable for the analysis prompt."""
+    """Multi-line sector / macro relative-performance summary for prompt context.
+
+    Args:
+        ticker: Stock symbol (e.g. "NVDA").
+
+    Returns:
+        Multi-line string. First lines list the sector, sector ETF, and 1d/5d/1mo
+        percent changes for the ticker, SPY, QQQ, and the sector ETF. Final line
+        summarizes the ticker's relative performance vs SPY across the three
+        windows (e.g. "outperforming SPY by 2.34pp"). Missing data shows as "n/a"
+        per period rather than being omitted. Never raises; failed fetches surface
+        as "n/a" entries inline.
+    """
     ctx = get_sector_context(ticker)
     sector = ctx.get("sector") or "unknown"
     etf = ctx.get("sector_etf") or "—"

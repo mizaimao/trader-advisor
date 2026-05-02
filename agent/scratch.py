@@ -8,9 +8,20 @@ from news import (
     tool_get_news_finnhub,
     tool_get_insider_transactions_finnhub,
     tool_days_until_earnings,
+    tool_get_earnings_calendar_finnhub,
     get_news_finnhub,
     get_insider_transactions_finnhub,
     days_until_earnings,
+    get_earnings_calendar_finnhub,
+)
+from options import tool_options_summary_text, options_summary_text
+from sector import tool_sector_summary_text, sector_summary_text
+from fundamentals import tool_get_fundamentals_text, get_fundamentals_text
+from sentiment import (
+    tool_stocktwits_summary_text,
+    tool_reddit_summary_text,
+    stocktwits_summary_text,
+    reddit_summary_text,
 )
 
 DEFAULT_MODEL: str = "gpt-oss:20b"
@@ -58,20 +69,33 @@ else:
 trace: list[dict] = []
 
 # Here we define tools available to use. May need to refactor to smaller chunks.
+# Ordered by hypothetical request frequency.
 tools: list[dict[str, Any]] = [
     tool_get_price_context,
     tool_get_indicator_text,
+    tool_get_fundamentals_text,
     tool_get_news_finnhub,
-    tool_get_insider_transactions_finnhub,
     tool_days_until_earnings,
+    tool_get_earnings_calendar_finnhub,
+    tool_get_insider_transactions_finnhub,
+    tool_options_summary_text,
+    tool_sector_summary_text,
+    tool_stocktwits_summary_text,
+    tool_reddit_summary_text,
 ]
 
 tool_func_mapper: dict[str, Callable] = {
     "get_price_context": get_price_context,
     "get_indicator_text": get_indicator_text,
+    "get_fundamentals_text": get_fundamentals_text,
     "get_news_finnhub": get_news_finnhub,
-    "get_insider_transactions_finnhub": get_insider_transactions_finnhub,
     "days_until_earnings": days_until_earnings,
+    "get_earnings_calendar_finnhub": get_earnings_calendar_finnhub,
+    "get_insider_transactions_finnhub": get_insider_transactions_finnhub,
+    "options_summary_text": options_summary_text,
+    "sector_summary_text": sector_summary_text,
+    "stocktwits_summary_text": stocktwits_summary_text,
+    "reddit_summary_text": reddit_summary_text,
 }
 
 def normalize_assistant_msg(assistant_msg) -> dict:

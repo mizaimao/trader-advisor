@@ -16,3 +16,8 @@ tool schema's `description` field is written and tuned independently from the Py
 5. **News tool returns mostly off-topic articles.** 
 
 Need to write new tools for the agent
+
+Some tools/function calls may return empty or None objects. Need to deal with it in the agent loop.
+
+The sector information should be fine-tuned by each stock as the current default is not a great reflection.
+
