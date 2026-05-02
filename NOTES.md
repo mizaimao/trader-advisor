@@ -21,3 +21,4 @@ Some tools/function calls may return empty or None objects. Need to deal with it
 
 The sector information should be fine-tuned by each stock as the current default is not a great reflection.
 
+GPT-OSS 20B sometimes decides to terminate the loop early, and sometimes requests weird tickers like "NVUPCOMING"
