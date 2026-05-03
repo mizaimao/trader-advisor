@@ -183,7 +183,8 @@ def main_keyboard():
     rows = [
         [KeyboardButton("/status"), KeyboardButton("/queue")],
         [KeyboardButton("/list"), KeyboardButton("/last")],
-        [KeyboardButton("/run"), KeyboardButton("/runsolo"), KeyboardButton("/runfull")],
+        [KeyboardButton("/runagent"), KeyboardButton("/run")],
+        [KeyboardButton("/runsolo"), KeyboardButton("/runfull")],
         [KeyboardButton("/kill"), KeyboardButton("/help")],
     ]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -208,6 +209,7 @@ async def cmd_start(update, ctx):
         "Use the keyboard below for quick commands, or type:\n"
         "/last TICKER, /run TICKER, /add TICKER, /remove TICKER\n\n"
         "Modes:\n"
+        "• /runagent — agent (autonomous tool-calling loop, Ollama only)\n"
         "• /run — core (3-call adversarial panel, default)\n"
         "• /runsolo — solo (single fast call)\n"
         "• /runfull — full (TradingAgents 7-agent graph)\n\n"
@@ -333,8 +335,20 @@ async def cmd_runsolo(update, ctx):
     await _start_run(ctx.bot, update.effective_chat.id, [t.upper() for t in ctx.args], "solo")
 
 
+@auth_required
+async def cmd_runagent(update, ctx):
+    """Agent mode — autonomous tool-calling loop. Ollama only."""
+    if not ctx.args:
+        await update.message.reply_text(
+            "Pick a ticker to run (agent):",
+            reply_markup=ticker_inline_keyboard("runagent"),
+        )
+        return
+    await _start_run(ctx.bot, update.effective_chat.id, [t.upper() for t in ctx.args], "agent")
+
+
 async def _start_run(bot, chat_id, tickers, mode):
-    """mode: 'solo' | 'core' | 'full'"""
+    """mode: 'solo' | 'core' | 'full' | 'agent'"""
     s = get_status()
     if s.get("status") == "running":
         await bot.send_message(
@@ -369,6 +383,10 @@ async def _start_run(bot, chat_id, tickers, mode):
         cmd.append("--full")
     elif mode == "solo":
         cmd.append("--solo")
+    elif mode == "agent":
+        # Agent budgets match the dashboard modal's defaults — leaves
+        # headroom for both the tool-call sequence and a clean wrap-up.
+        cmd.extend(["--agent", "--max-tool-calls", "12", "--max-tokens", "200000"])
     # core needs no flag, it's the default
 
     log_path = os.path.expanduser("~/.tradingagents/bot_run.log")
@@ -463,8 +481,13 @@ async def on_button(update, ctx):
         await query.edit_message_text(f"📊 Loading {payload}...")
         await _send_last_to_chat(ctx.bot, chat_id, payload)
 
-    elif action in ("run", "runfull", "runsolo"):
-        mode = {"run": "core", "runfull": "full", "runsolo": "solo"}[action]
+    elif action in ("run", "runfull", "runsolo", "runagent"):
+        mode = {
+            "run": "core",
+            "runfull": "full",
+            "runsolo": "solo",
+            "runagent": "agent",
+        }[action]
         await query.edit_message_text(
             f"🚀 Triggered {mode} run on {payload}..."
         )
@@ -494,6 +517,7 @@ def main():
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("runfull", cmd_runfull))
     app.add_handler(CommandHandler("runsolo", cmd_runsolo))
+    app.add_handler(CommandHandler("runagent", cmd_runagent))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("kill", cmd_kill))
     app.add_handler(CallbackQueryHandler(on_button))
