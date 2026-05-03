@@ -118,26 +118,27 @@ status = get_status()
 if status["status"] == "running":
     st_autorefresh(interval=3000, key="job_poll")
 
-# ── App-level top strip: banner (left) + Run Analysis button (right) ───────
-# The button is persistent across all tabs (rendered above the st.tabs call).
-# Clicking it opens the run-config modal regardless of which tab is active.
-banner_col, action_col = st.columns([5, 1])
+# ── App-level banner (demo only — full-width row) ───────────────────────────
+if DEMO_MODE:
+    st.info(
+        "🔒 **Demo mode** — runs are pre-loaded. The full UI is shown so "
+        "you can see what the system does; live runs are disabled because "
+        "the agent needs Finnhub, Alpha Vantage, and an LLM key (browser "
+        "BYOK won't fit). To run live, clone the "
+        "[GitHub repo](https://github.com/mizaimao/trader-advisor) and add "
+        "your keys to `.env`."
+    )
 
-with banner_col:
-    if DEMO_MODE:
-        st.info(
-            "🔒 **Demo mode** — runs are pre-loaded. The full UI is shown so "
-            "you can see what the system does; live runs are disabled because "
-            "the agent needs Finnhub, Alpha Vantage, and an LLM key (browser "
-            "BYOK won't fit). To run live, clone the "
-            "[GitHub repo](https://github.com/mizaimao/trader-advisor) and add "
-            "your keys to `.env`."
-        )
+# ── Status row: status banner (left) + Run Analysis button (right) ─────────
+# The "✅ Idle — no jobs running" / "⚙ Running" indicator and the run-trigger
+# button share one row to save vertical space. Button is persistent across
+# all tabs (rendered above st.tabs).
+status_col, action_col = st.columns([5, 1])
+
+with status_col:
+    status_banner.render(status, demo_mode=DEMO_MODE)
 
 with action_col:
-    # Vertical spacer so the button visually aligns with the banner content.
-    if DEMO_MODE:
-        st.write("")
     if st.button(
         "⚡ Run Analysis",
         type="primary",
@@ -148,9 +149,6 @@ with action_col:
             managed_tickers, df, status,
             PROJECT_ROOT, PYTHON_BIN, RUNNER_PATH,
         )
-
-# Status banner sits above the tabs (running/idle is global app state).
-status_banner.render(status, demo_mode=DEMO_MODE)
 
 # ── Tabs ─────────────────────────────────────────────────────────────────────
 tab_overview, tab_runs, tab_about = st.tabs([

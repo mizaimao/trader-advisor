@@ -110,16 +110,17 @@ def render(managed_tickers, df, status):
 
     # ── 3. Metadata + price chart side-by-side ────────────────────────────
     # Price chart is the visual anchor — the only panel NOT collapsed by default.
+    # Earnings calendar lives INSIDE the chart column (under the RSI subplot)
+    # rather than spanning the full width below — keeps it associated with the
+    # chart visually and frees the row below for analysis-related content.
     col_meta, col_chart = st.columns([1, 4])
     with col_meta:
         dd_metadata.render(row)
     with col_chart:
         dd_price_chart.render(ticker_pick)
-
-    # ── 4. Earnings calendar (inline, no expander, right under the chart) ─
-    earnings_calendar.render(
-        [ticker_pick] if ticker_pick else [], wrap_in_expander=False,
-    )
+        earnings_calendar.render(
+            [ticker_pick] if ticker_pick else [], wrap_in_expander=False,
+        )
 
     st.divider()
 

@@ -76,7 +76,7 @@ def _build_provider_groups():
 
 
 # ── The dialog ──────────────────────────────────────────────────────────────
-@st.dialog("⚡ Run Analysis", width="large")
+@st.dialog("Run Analysis", width="large")
 def run_analysis_modal(
     managed_tickers, df, status,
     project_root, python_bin, runner_path,
@@ -90,6 +90,12 @@ def run_analysis_modal(
 
     grouped = _build_provider_groups()
     provider_keys = list(grouped.keys())
+    # Default to Ollama on first open — agent mode requires it, and it's the
+    # only provider that works without external API keys. Subsequent opens
+    # use whatever the user last selected (session_state via the key).
+    default_provider_idx = (
+        provider_keys.index("ollama") if "ollama" in provider_keys else 0
+    )
 
     # ── A. Provider + Model + API key ───────────────────────────────────
     st.markdown("##### Provider")
@@ -98,6 +104,7 @@ def run_analysis_modal(
         provider = st.selectbox(
             "Provider",
             provider_keys,
+            index=default_provider_idx,
             format_func=lambda p: PROVIDER_DISPLAY_NAMES.get(p, p),
             key="modal_provider",
             label_visibility="collapsed",
