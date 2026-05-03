@@ -23,8 +23,10 @@ def render(
     st.markdown(
         "## About\n\n"
         "A personal dashboard for viewing and controlling LLM-driven trading "
-        "analysis. Four modes, ten data sources, and a loop-based agent mode "
-        "that drives its own toolbox."
+        "analysis. I wrote an LLM agent that researches stocks by autonomously "
+        "calling tools - it picks its own tools during the investigation "
+        "(loop-based, with a tool-call quota). I also wrote two LLM pipelines "
+        "(solo and core) as additional voices."
     )
 
     # ── 2. Setup ──────────────────────────────────────────────────────────

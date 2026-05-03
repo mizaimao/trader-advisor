@@ -1,0 +1,112 @@
+{
+  "earnings_days": {
+    "NVDA": 17,
+    "MSFT": 86,
+    "AAPL": 87,
+    "GOOGL": 79,
+    "TSLA": 79,
+    "AMD": 2,
+    "AMZN": 87,
+    "META": 86
+  },
+  "earnings_event": {
+    "NVDA": {
+      "date": "2026-05-20",
+      "epsActual": null,
+      "epsEstimate": 1.792,
+      "hour": "amc",
+      "quarter": 1,
+      "revenueActual": null,
+      "revenueEstimate": 80068303638,
+      "symbol": "NVDA",
+      "year": 2027
+    },
+    "MSFT": {
+      "date": "2026-07-28",
+      "epsActual": null,
+      "epsEstimate": 4.3383,
+      "hour": "amc",
+      "quarter": 4,
+      "revenueActual": null,
+      "revenueEstimate": 89323219139,
+      "symbol": "MSFT",
+      "year": 2026
+    },
+    "AAPL": {
+      "date": "2026-07-29",
+      "epsActual": null,
+      "epsEstimate": 1.7604,
+      "hour": "amc",
+      "quarter": 3,
+      "revenueActual": null,
+      "revenueEstimate": 104289595611,
+      "symbol": "AAPL",
+      "year": 2026
+    },
+    "GOOGL": {
+      "date": "2026-07-21",
+      "epsActual": null,
+      "epsEstimate": 2.8504,
+      "hour": "amc",
+      "quarter": 2,
+      "revenueActual": null,
+      "revenueEstimate": 116801217127,
+      "symbol": "GOOGL",
+      "year": 2026
+    },
+    "TSLA": {
+      "date": "2026-07-21",
+      "epsActual": null,
+      "epsEstimate": 0.4486,
+      "hour": "amc",
+      "quarter": 2,
+      "revenueActual": null,
+      "revenueEstimate": 24750532968,
+      "symbol": "TSLA",
+      "year": 2026
+    },
+    "AMD": {
+      "date": "2026-05-05",
+      "epsActual": null,
+      "epsEstimate": 1.3014,
+      "hour": "amc",
+      "quarter": 1,
+      "revenueActual": null,
+      "revenueEstimate": 9978990778,
+      "symbol": "AMD",
+      "year": 2026
+    },
+    "AMZN": {
+      "date": "2026-07-29",
+      "epsActual": null,
+      "epsEstimate": 1.8272,
+      "hour": "amc",
+      "quarter": 2,
+      "revenueActual": null,
+      "revenueEstimate": 192386878617,
+      "symbol": "AMZN",
+      "year": 2026
+    },
+    "META": {
+      "date": "2026-07-28",
+      "epsActual": null,
+      "epsEstimate": 7.351,
+      "hour": "amc",
+      "quarter": 2,
+      "revenueActual": null,
+      "revenueEstimate": 60642417000,
+      "symbol": "META",
+      "year": 2026
+    }
+  },
+  "insider": {
+    "NVDA": "Net insider selling (last 60d): $294,772,059 | 5 buys, 47 sells | latest: 2026-03-20",
+    "MSFT": "Net insider selling (last 30d): $536,202 | 0 buys, 1 sells | latest: 2026-04-15",
+    "AAPL": "Net insider selling (last 30d): $26,109,577 | 2 buys, 17 sells | latest: 2026-04-23",
+    "GOOGL": "Net insider selling (last 30d): $5,387,027 | 9 buys, 23 sells | latest: 2026-04-30",
+    "TSLA": "Net insider neutral (last 30d): $0 | 0 buys, 1 sells | latest: 2026-04-21",
+    "AMD": "Net insider selling (last 30d): $20,182,040 | 1 buys, 5 sells | latest: 2026-04-24",
+    "AMZN": "Net insider selling (last 30d): $13,928,240 | 5 buys, 3 sells | latest: 2026-04-24",
+    "META": "Net insider selling (last 30d): $5,424,115 | 0 buys, 31 sells | latest: 2026-04-27"
+  }
+}

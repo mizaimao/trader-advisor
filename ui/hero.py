@@ -71,10 +71,11 @@ _COMPACT_STYLE = """<style>
 def render_compact():
     """Title (h1) + muted subtitle + 4 capsules. No outer box."""
     st.markdown(_COMPACT_STYLE, unsafe_allow_html=True)
-    st.title("📈 Multi-mode stock analysis pipeline")
+    st.title("Agentic stock research")
     st.markdown(
         '<div class="hero-tagline">'
-        'Three workflow modes plus an autonomous tool-use agent. '
+        'An autonomous tool-calling agent that investigates stocks and picks '
+        'its own data sources. Plus LLM pipelines for comparison. '
         '<a href="https://github.com/mizaimao/trader-advisor" target="_blank">'
         'GitHub repo →</a>'
         '</div>',
