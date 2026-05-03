@@ -46,6 +46,8 @@ def _render_body(managed_tickers):
         upcoming.sort(key=lambda x: x["days"])
         cal_df = pd.DataFrame(upcoming)
         cal_df["countdown"] = cal_df["days"].apply(earnings_label)
+        cal_df["eps_estimate"] = cal_df["eps_estimate"].apply(_fmt_eps)
+        cal_df["revenue_estimate"] = cal_df["revenue_estimate"].apply(_fmt_dollars)
         display_df = cal_df[
             ["ticker", "countdown", "date", "hour", "eps_estimate", "revenue_estimate"]
         ]
@@ -53,3 +55,32 @@ def _render_body(managed_tickers):
         st.dataframe(display_df, width="stretch", hide_index=True)
     else:
         st.caption("No earnings scheduled within the next 30 days.")
+
+
+def _fmt_dollars(amount):
+    """Compact dollar formatting: 80,068,303,638 → '$80.1B'."""
+    if amount is None or pd.isna(amount):
+        return "—"
+    try:
+        n = float(amount)
+    except (TypeError, ValueError):
+        return "—"
+    if n >= 1e12:
+        return f"${n / 1e12:.2f}T"
+    if n >= 1e9:
+        return f"${n / 1e9:.1f}B"
+    if n >= 1e6:
+        return f"${n / 1e6:.0f}M"
+    if n >= 1e3:
+        return f"${n / 1e3:.0f}K"
+    return f"${n:.0f}"
+
+
+def _fmt_eps(eps):
+    """Two-decimal dollar formatting for EPS estimates: 1.792 → '$1.79'."""
+    if eps is None or pd.isna(eps):
+        return "—"
+    try:
+        return f"${float(eps):.2f}"
+    except (TypeError, ValueError):
+        return "—"
