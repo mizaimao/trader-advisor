@@ -100,7 +100,7 @@ def render(managed_tickers, df, status):
         if cols[0].button(
             ticker_label,
             key=f"tk_{ticker}",
-            use_container_width=True,
+            width="stretch",
             help=f"Open {ticker} in the Run Explorer tab",
         ):
             st.session_state["target_ticker"] = ticker
@@ -131,7 +131,7 @@ def render(managed_tickers, df, status):
                 label,
                 key=f"pill_{ticker}_{mode}",
                 help=str(decision),
-                use_container_width=True,
+                width="stretch",
                 disabled=disabled,
             ):
                 st.session_state["target_ticker"] = ticker

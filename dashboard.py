@@ -5,7 +5,7 @@ Tab 2: 🔍 Run Explorer  — drill into one historical run
 Tab 3: ⚙️ About & Setup — technical details + clone instructions + operational controls
 
 Demo banner stays above the tabs (app-level context that applies everywhere).
-Set TRADER_ADVISOR_DEMO_MODE=true for demo/portfolio mode.
+Set TRADER_ADVISOR_DEMO_MODE=true for the read-only demo flavor.
 """
 import os
 import sys
@@ -142,7 +142,7 @@ with action_col:
     if st.button(
         "Run Analysis",
         type="primary",
-        use_container_width=True,
+        width="stretch",
         key="open_run_modal",
     ):
         run_analysis_modal(
@@ -178,8 +178,7 @@ with tab_about:
 _TAB_INDEX = {"overview": 0, "run_explorer": 1, "about": 2}
 _nav_target = st.session_state.pop("nav_to_tab", None)
 if _nav_target in _TAB_INDEX:
-    import streamlit.components.v1 as components
-    components.html(
+    st.iframe(
         f"""<script>
         const idx = {_TAB_INDEX[_nav_target]};
         const sel = '[role="tab"]';

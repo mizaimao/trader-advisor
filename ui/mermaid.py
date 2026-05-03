@@ -1,7 +1,7 @@
 """Render Mermaid diagrams.
 
 Mermaid needs an iframe to execute its module script (CSP/script-type
-restrictions). st.html doesn't execute scripts; components.html does.
+restrictions). st.html doesn't execute scripts; st.iframe does.
 
 Implementation notes:
 - `startOnLoad: false` + explicit `mermaid.run()` is the modern pattern
@@ -13,7 +13,7 @@ Implementation notes:
 - The post-render SVG is constrained to container width so it doesn't
   overflow the iframe.
 """
-import streamlit.components.v1 as components
+import streamlit as st
 
 
 def render(code: str, height: int = 600):
@@ -67,4 +67,4 @@ def render(code: str, height: int = 600):
 </script>
 </body>
 </html>"""
-    components.html(html, height=height, scrolling=True)
+    st.iframe(html, height=height)
