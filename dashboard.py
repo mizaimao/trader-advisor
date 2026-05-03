@@ -140,7 +140,7 @@ with status_col:
 
 with action_col:
     if st.button(
-        "⚡ Run Analysis",
+        "Run Analysis",
         type="primary",
         use_container_width=True,
         key="open_run_modal",
