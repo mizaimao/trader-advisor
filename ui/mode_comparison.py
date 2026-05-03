@@ -11,8 +11,9 @@ import streamlit as st
 
 _MODES = [
     (
-        "solo",
-        "Single LLM call with all data sources. Baseline.",
+        "agent",
+        "Autonomous tool-calling loop. Picks its own data sources to query "
+        "and when, at its own discretion.",
     ),
     (
         "core",
@@ -25,9 +26,8 @@ _MODES = [
         "debate. Slowest.",
     ),
     (
-        "agent",
-        "Autonomous tool-calling loop. Picks its own data sources to query "
-        "and when, at its own discretion.",
+        "solo",
+        "Single LLM call with all data sources. Baseline.",
     ),
 ]
 
