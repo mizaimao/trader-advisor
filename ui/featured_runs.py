@@ -181,7 +181,7 @@ def _render_card(pick):
         unsafe_allow_html=True,
     )
 
-    if st.button("View trace →", key=f"feat_{row['id']}", use_container_width=True):
+    if st.button("View trace →", key=f"feat_{row['id']}", width="stretch"):
         st.session_state["target_ticker"] = ticker
         st.session_state["target_mode"] = "agent"
         st.session_state["target_run_id"] = int(row["id"])

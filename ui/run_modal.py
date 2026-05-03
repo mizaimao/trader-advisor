@@ -196,7 +196,7 @@ def run_analysis_modal(
                 )
             with col_override:
                 if st.button(
-                    "Override", key="modal_show_override", use_container_width=True
+                    "Override", key="modal_show_override", width="stretch"
                 ):
                     st.session_state["modal_show_override_input"] = True
             if st.session_state.get("modal_show_override_input"):
@@ -237,8 +237,26 @@ def run_analysis_modal(
     st.divider()
 
     # ── B. Ticker mini-table ────────────────────────────────────────────
+    # Always editable, even in demo — selection feeds the cost preview so
+    # users can explore "what would this cost?". The Run Now button is
+    # still gated by DEMO_MODE so they can't actually fire a job.
     st.markdown("##### Tickers")
-    freshness_df = _build_freshness_df(managed_tickers, df)
+    sel_all_col, clear_col, _spacer = st.columns([1, 1, 4])
+    with sel_all_col:
+        if st.button("Select all", key="modal_select_all", width="stretch"):
+            st.session_state["_modal_select_default"] = True
+            st.session_state.pop("modal_ticker_table", None)
+            st.rerun()
+    with clear_col:
+        if st.button("Clear", key="modal_clear_all", width="stretch"):
+            st.session_state["_modal_select_default"] = False
+            st.session_state.pop("modal_ticker_table", None)
+            st.rerun()
+
+    freshness_df = _build_freshness_df(
+        managed_tickers, df,
+        default_select=st.session_state.get("_modal_select_default", False),
+    )
     edited = st.data_editor(
         freshness_df,
         column_config={
@@ -253,9 +271,8 @@ def run_analysis_modal(
             ),
         },
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         height=280,
-        disabled=DEMO_MODE,
         key="modal_ticker_table",
     )
     if isinstance(edited, pd.DataFrame) and "select" in edited.columns:
@@ -301,23 +318,39 @@ def run_analysis_modal(
             )
 
     # ── D. Cost preview ─────────────────────────────────────────────────
+    # For ollama we still show a dollar estimate (priced at the Anthropic
+    # Sonnet reference rate) so the user has a sense of scale, then tag
+    # it as free since local inference doesn't actually cost anything.
     n_tickers = len(selected_tickers)
     est_tokens = _estimate_total_tokens(mode, max_tool_calls, n_tickers)
-    if provider == "ollama" or n_tickers == 0:
-        cost_str = "Free (local inference)" if provider == "ollama" else "—"
-    else:
-        rate = COST_PER_1K.get(provider, 0)
-        est_cost = est_tokens / 1000 * rate
-        cost_str = f"~${est_cost:.4f}"
+    provider_rate = COST_PER_1K.get(provider, 0)
+    rate = provider_rate or COST_PER_1K["anthropic"]
+    est_cost = est_tokens / 1000 * rate
+    cost_str = f"~${est_cost:.4f}"
+    if provider == "ollama":
+        cost_str += " (free for local inference)"
     st.caption(
         f"Estimated: **{n_tickers}** ticker(s) · ~{est_tokens:,} tokens · "
-        f"{cost_str} · `{model}`"
+        f"{cost_str}"
     )
+    if provider == "ollama":
+        rate_basis = (
+            f"Dollar figure priced at the Anthropic Sonnet reference rate "
+            f"(${COST_PER_1K['anthropic']:.4f}/1K tokens) for scale — "
+            f"local inference on `{model}` is free."
+        )
+    else:
+        rate_basis = (
+            f"Estimate uses the {PROVIDER_LABELS.get(provider, provider)} "
+            f"blended rate (${rate:.4f}/1K tokens). Actual cost on "
+            f"`{model}` will vary with the prompt/completion split."
+        )
+    st.caption(rate_basis)
 
     # ── E. Action buttons ───────────────────────────────────────────────
     col_cancel, col_run = st.columns([1, 1])
     with col_cancel:
-        if st.button("Cancel", use_container_width=True, key="modal_cancel"):
+        if st.button("Cancel", width="stretch", key="modal_cancel"):
             _reset_modal_state()
             st.rerun()
     with col_run:
@@ -359,7 +392,7 @@ def run_analysis_modal(
             type="primary",
             disabled=run_disabled,
             help=run_help,
-            use_container_width=True,
+            width="stretch",
             key="modal_run_now",
         ):
             _fire_run(
@@ -381,12 +414,12 @@ def run_analysis_modal(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
-def _build_freshness_df(managed_tickers, df):
+def _build_freshness_df(managed_tickers, df, default_select=False):
     """Build the per-ticker latest-run summary table."""
     rows = []
     for ticker in managed_tickers:
         row = {
-            "select": False,
+            "select": default_select,
             "ticker": ticker,
             "last_run_age": "—",
             "last_mode": "—",
