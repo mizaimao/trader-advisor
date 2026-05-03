@@ -64,14 +64,48 @@ PER_TICKER_TOKENS = {
 }
 
 
-def _build_provider_groups():
+# Fallback Ollama model list, used only when the live `/api/tags` probe fails
+# (server unreachable, demo mode, network issue). In normal operation the
+# modal pulls the actual installed-models list from the configured URL.
+_OLLAMA_FALLBACK_MODELS = [
+    "gpt-oss:20b",
+    "gemma4:26b",
+    "qwen3.6:latest",
+]
+
+
+def _build_provider_groups(ollama_url=None):
     """Group entries from providers.PROVIDERS by provider key.
 
-    Returns dict { provider_key: [(label, model), ...] } in PROVIDERS order.
+    For Ollama: probe the server's `/api/tags` endpoint to list installed
+    models live. Falls back to a small hardcoded list only if the probe
+    fails. The probe is cached at 60s TTL by `ui/ollama_probe.py` so calling
+    this on every modal render is cheap.
+
+    Returns dict { provider_key: [(label, model), ...] }.
     """
     grouped: dict[str, list[tuple[str, str]]] = {}
     for p in PROVIDERS:
         grouped.setdefault(p["provider"], []).append((p["label"], p["model"]))
+
+    probed_models: list[str] = []
+    if ollama_url:
+        from .ollama_probe import probe_models
+        models, _err = probe_models(ollama_url)
+        probed_models = models or []
+
+    if probed_models:
+        # Tag the "recommended for agent" model so the user can spot it.
+        grouped["ollama"] = [
+            (
+                f"{m} (recommended for agent)" if m == "gpt-oss:20b" else m,
+                m,
+            )
+            for m in probed_models
+        ]
+    else:
+        grouped["ollama"] = [(m, m) for m in _OLLAMA_FALLBACK_MODELS]
+
     return grouped
 
 
@@ -88,7 +122,17 @@ def run_analysis_modal(
             "Clone the repo to run live."
         )
 
-    grouped = _build_provider_groups()
+    # Resolve the Ollama URL BEFORE building provider groups so the model
+    # dropdown can be populated from the live /api/tags probe. The URL field
+    # itself renders later (in the API-key block), but its value lives in
+    # session_state across reruns, so reading it here is safe — on a fresh
+    # session we fall back to the env var or localhost default.
+    ollama_url_for_probe = (
+        st.session_state.get("modal_ollama_url")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or "http://localhost:11434"
+    )
+    grouped = _build_provider_groups(ollama_url=ollama_url_for_probe)
     provider_keys = list(grouped.keys())
     # Default to Ollama on first open — agent mode requires it, and it's the
     # only provider that works without external API keys. Subsequent opens
@@ -110,6 +154,14 @@ def run_analysis_modal(
             label_visibility="collapsed",
         )
     with col_model:
+        # When the provider changes, drop the stale model-label from session
+        # state — it's almost certainly not in the new provider's options
+        # and Streamlit's selectbox state-persistence makes it stick to a
+        # value that no longer exists, leaving the dropdown unselectable.
+        if st.session_state.get("_modal_prev_provider") != provider:
+            st.session_state.pop("modal_model_label", None)
+            st.session_state["_modal_prev_provider"] = provider
+
         model_choices = grouped[provider]
         # Display by label, return underlying model id
         labels = [lbl for lbl, _ in model_choices]
