@@ -59,8 +59,16 @@ COST_PER_1K = {
 PER_TICKER_TOKENS = {
     "solo": 18_000,
     "core": 55_000,
-    "full": 400_000,
+    "full": 400_000,  # all 4 analysts; scales linearly when fewer are picked
     # agent: scales with tool-call budget — handled separately
+}
+
+FULL_ANALYSTS = ["market", "social", "news", "fundamentals"]
+FULL_ANALYST_LABELS = {
+    "market": "Market (technical)",
+    "social": "Social sentiment",
+    "news": "News",
+    "fundamentals": "Fundamentals",
 }
 
 
@@ -296,6 +304,7 @@ def run_analysis_modal(
 
     max_tool_calls: Optional[int] = None
     max_tokens: Optional[int] = None
+    selected_analysts: list[str] = list(FULL_ANALYSTS)
     if mode == "agent":
         col_calls, col_tokens = st.columns(2)
         with col_calls:
@@ -316,13 +325,34 @@ def run_analysis_modal(
                 key="modal_max_tokens",
                 help="Cumulative token cap across all API calls in the run.",
             )
+    elif mode == "full":
+        st.markdown(
+            "**Analysts** — TradingAgents runs up to 4 in parallel. "
+            "Drop one to cut ~25% off runtime/tokens."
+        )
+        cols = st.columns(len(FULL_ANALYSTS))
+        picked = []
+        for col, key in zip(cols, FULL_ANALYSTS):
+            with col:
+                if st.checkbox(
+                    FULL_ANALYST_LABELS[key],
+                    value=True,
+                    key=f"modal_full_analyst_{key}",
+                ):
+                    picked.append(key)
+        if not picked:
+            st.warning("Pick at least one analyst.")
+        selected_analysts = picked
 
     # ── D. Cost preview ─────────────────────────────────────────────────
     # For ollama we still show a dollar estimate (priced at the Anthropic
     # Sonnet reference rate) so the user has a sense of scale, then tag
     # it as free since local inference doesn't actually cost anything.
     n_tickers = len(selected_tickers)
-    est_tokens = _estimate_total_tokens(mode, max_tool_calls, n_tickers)
+    est_tokens = _estimate_total_tokens(
+        mode, max_tool_calls, n_tickers,
+        full_analyst_count=len(selected_analysts),
+    )
     provider_rate = COST_PER_1K.get(provider, 0)
     rate = provider_rate or COST_PER_1K["anthropic"]
     est_cost = est_tokens / 1000 * rate
@@ -362,11 +392,13 @@ def run_analysis_modal(
             and not api_key_override
         )
         agent_provider_mismatch = mode == "agent" and provider != "ollama"
+        no_analysts = mode == "full" and not selected_analysts
         run_disabled = (
             DEMO_MODE
             or no_tickers
             or no_key
             or agent_provider_mismatch
+            or no_analysts
             or status["status"] == "running"
         )
         if DEMO_MODE:
@@ -384,6 +416,8 @@ def run_analysis_modal(
                 "Agent mode currently requires Ollama. Other providers will "
                 "be supported once the Anthropic adapter ships."
             )
+        elif no_analysts:
+            run_help = "Pick at least one analyst for full mode."
         else:
             run_help = None
 
@@ -404,6 +438,7 @@ def run_analysis_modal(
                 ollama_url=ollama_url if provider == "ollama" else None,
                 max_tool_calls=max_tool_calls,
                 max_tokens=max_tokens,
+                analysts=selected_analysts if mode == "full" else None,
                 env_key_var=env_key_var,
                 project_root=project_root,
                 python_bin=python_bin,
@@ -460,13 +495,19 @@ def _age_label(ts):
     return f"{days}d ago"
 
 
-def _estimate_total_tokens(mode, agent_max_tool_calls, num_tickers):
+def _estimate_total_tokens(
+    mode, agent_max_tool_calls, num_tickers, *, full_analyst_count=4,
+):
     """Rough total-token estimate for a run, summed across tickers."""
     if num_tickers == 0:
         return 0
     if mode == "agent":
         # Observed avg: ~7K tokens per tool call in agent loops.
         per_ticker = (agent_max_tool_calls or 10) * 7_000
+    elif mode == "full":
+        # Default 400K assumes all 4 analysts; scale linearly.
+        scale = max(full_analyst_count, 1) / 4
+        per_ticker = int(PER_TICKER_TOKENS["full"] * scale)
     else:
         per_ticker = PER_TICKER_TOKENS.get(mode, 0)
     return per_ticker * num_tickers
@@ -490,6 +531,7 @@ def _fire_run(
     tickers, provider, model, mode,
     api_key_override, ollama_url,
     max_tool_calls, max_tokens,
+    analysts,
     env_key_var,
     project_root, python_bin, runner_path,
 ):
@@ -515,6 +557,8 @@ def _fire_run(
     mode_args = []
     if mode == "full":
         mode_args = ["--full"]
+        if analysts and len(analysts) < 4:
+            mode_args.extend(["--analysts", ",".join(analysts)])
     elif mode == "solo":
         mode_args = ["--solo"]
     elif mode == "agent":

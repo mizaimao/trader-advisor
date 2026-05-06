@@ -257,6 +257,25 @@ def run_core(ticker, today, provider, model):
 
 
 # ── FULL ──────────────────────────────────────────────────────────────────────
+FULL_ANALYSTS = ["market", "social", "news", "fundamentals"]
+
+
+def _resolve_analysts():
+    """Read --analysts a,b,c,d CLI arg, or None to use TradingAgents' default
+    (all 4: market, social, news, fundamentals). Unknown names are dropped
+    silently; an empty list falls back to the default to avoid a hard error
+    deep inside graph setup."""
+    if "--analysts" not in sys.argv:
+        return None
+    idx = sys.argv.index("--analysts")
+    try:
+        raw = sys.argv[idx + 1]
+    except IndexError:
+        return None
+    picked = [a.strip() for a in raw.split(",") if a.strip() in FULL_ANALYSTS]
+    return picked or None
+
+
 def run_full(ticker, today, provider, model):
     try:
         from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -291,7 +310,11 @@ def run_full(ticker, today, provider, model):
     config["max_debate_rounds"] = 1
     config["max_risk_discuss_rounds"] = 1
 
-    ta = TradingAgentsGraph(debug=True, config=config)
+    analysts = _resolve_analysts()
+    ta_kwargs = {"debug": True, "config": config}
+    if analysts:
+        ta_kwargs["selected_analysts"] = analysts
+    ta = TradingAgentsGraph(**ta_kwargs)
     state, decision = ta.propagate(ticker, today)
     analysis = "\n\n".join([
         msg.content for msg in state["messages"]
