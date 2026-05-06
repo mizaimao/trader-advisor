@@ -75,11 +75,14 @@ FULL_ANALYST_LABELS = {
 # Fallback Ollama model list, used only when the live `/api/tags` probe fails
 # (server unreachable, demo mode, network issue). In normal operation the
 # modal pulls the actual installed-models list from the configured URL.
+# gemma4:26b is the project default model (config.py); gpt-oss:20b gets a
+# "(recommended for agent)" badge but isn't the default pick.
 _OLLAMA_FALLBACK_MODELS = [
-    "gpt-oss:20b",
     "gemma4:26b",
+    "gpt-oss:20b",
     "qwen3.6:latest",
 ]
+_OLLAMA_DEFAULT_MODEL = "gemma4:26b"
 
 
 def _build_provider_groups(ollama_url=None):
@@ -103,13 +106,20 @@ def _build_provider_groups(ollama_url=None):
         probed_models = models or []
 
     if probed_models:
-        # Tag the "recommended for agent" model so the user can spot it.
+        # Pin gemma4:26b to the front so it becomes the dropdown default
+        # (Streamlit's selectbox picks index 0 absent session-state). Other
+        # models retain probe order. gpt-oss:20b gets a tag instead of
+        # priority — agent recommendation, but not the project default.
+        ordered = sorted(
+            probed_models,
+            key=lambda m: (m != _OLLAMA_DEFAULT_MODEL, probed_models.index(m)),
+        )
         grouped["ollama"] = [
             (
                 f"{m} (recommended for agent)" if m == "gpt-oss:20b" else m,
                 m,
             )
-            for m in probed_models
+            for m in ordered
         ]
     else:
         grouped["ollama"] = [(m, m) for m in _OLLAMA_FALLBACK_MODELS]
@@ -251,15 +261,17 @@ def run_analysis_modal(
     st.markdown("##### Tickers")
     sel_all_col, clear_col, _spacer = st.columns([1, 1, 4])
     with sel_all_col:
+        # No st.rerun() — the buttons sit above the data_editor, so the
+        # session-state pop takes effect on this same auto-rerun. Calling
+        # st.rerun() inside an @st.dialog dismisses the dialog, which is
+        # why "Select all" used to close the modal.
         if st.button("Select all", key="modal_select_all", width="stretch"):
             st.session_state["_modal_select_default"] = True
             st.session_state.pop("modal_ticker_table", None)
-            st.rerun()
     with clear_col:
         if st.button("Clear", key="modal_clear_all", width="stretch"):
             st.session_state["_modal_select_default"] = False
             st.session_state.pop("modal_ticker_table", None)
-            st.rerun()
 
     freshness_df = _build_freshness_df(
         managed_tickers, df,
