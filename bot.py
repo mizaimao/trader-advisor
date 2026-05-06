@@ -162,6 +162,51 @@ def fmt_decision(decision):
     return f"⚪ {d or 'UNKNOWN'}"
 
 
+def fmt_agent_trace(row):
+    """One-line-per-tool-call summary of an agent run's trace.
+
+    Reads the JSON in `extra.trace`, ignores reasoning/tool_results, and
+    renders just the call sequence. Returns None if the row isn't an
+    agent run or has no trace.
+    """
+    import json as _json
+    if (row.get("mode") or "").lower() != "agent":
+        return None
+    extra_raw = row.get("extra")
+    if not extra_raw:
+        return None
+    try:
+        extra = _json.loads(extra_raw) if isinstance(extra_raw, str) else extra_raw
+    except (TypeError, ValueError):
+        return None
+
+    trace = extra.get("trace") or []
+    if not trace:
+        return None
+
+    lines = []
+    call_idx = 0
+    for step in trace:
+        for tc in step.get("tool_calls") or []:
+            call_idx += 1
+            name = tc.get("name", "?")
+            args = tc.get("args") or {}
+            args_str = ", ".join(f"{k}={v}" for k, v in args.items())
+            lines.append(f"{call_idx:>2}. <code>{_html.escape(name)}</code>({_html.escape(args_str)})")
+
+    used = extra.get("tool_calls_used", call_idx)
+    budget = extra.get("max_tool_calls", "?")
+    forced = extra.get("forced_final")
+    footer = f"\n<i>{used}/{budget} tool calls"
+    if forced:
+        footer += " · forced final (token cap hit)"
+    footer += "</i>"
+
+    if not lines:
+        return f"<i>(no tool calls — agent answered directly)</i>{footer}"
+    return "\n".join(lines) + footer
+
+
 def fmt_run_summary(row):
     """Quick header for a run (HTML-formatted)."""
     decision = fmt_decision(row.get("decision"))
@@ -182,7 +227,7 @@ def fmt_run_summary(row):
 def main_keyboard():
     rows = [
         [KeyboardButton("/status"), KeyboardButton("/queue")],
-        [KeyboardButton("/list"), KeyboardButton("/last")],
+        [KeyboardButton("/list"), KeyboardButton("/last"), KeyboardButton("/trace")],
         [KeyboardButton("/runagent"), KeyboardButton("/run")],
         [KeyboardButton("/runsolo"), KeyboardButton("/runfull")],
         [KeyboardButton("/kill"), KeyboardButton("/help")],
@@ -207,7 +252,7 @@ async def cmd_start(update, ctx):
     msg = (
         "📊 Trading Dashboard bot.\n\n"
         "Use the keyboard below for quick commands, or type:\n"
-        "/last TICKER, /run TICKER, /add TICKER, /remove TICKER\n\n"
+        "/last TICKER, /trace TICKER, /run TICKER, /add TICKER, /remove TICKER\n\n"
         "Modes:\n"
         "• /runagent — agent (autonomous tool-calling loop, Ollama only)\n"
         "• /run — core (3-call adversarial panel, default)\n"
@@ -336,6 +381,45 @@ async def cmd_runsolo(update, ctx):
 
 
 @auth_required
+async def cmd_trace(update, ctx):
+    """Show the latest agent run's tool-call sequence for a ticker."""
+    if not ctx.args:
+        await update.message.reply_text(
+            "Pick a ticker:",
+            reply_markup=ticker_inline_keyboard("trace"),
+        )
+        return
+    ticker = ctx.args[0].upper()
+    await _send_trace_to_chat(ctx.bot, update.effective_chat.id, ticker)
+
+
+async def _send_trace_to_chat(bot, chat_id, ticker):
+    row = get_latest_run(ticker, mode="agent")
+    if not row:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"No agent runs found for {ticker}. Try /runagent {ticker}.",
+        )
+        return
+    trace_text = fmt_agent_trace(row)
+    if trace_text is None:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"Run #{row['id']} for {ticker} has no trace data.",
+        )
+        return
+    decision = fmt_decision(row.get("decision"))
+    when = row.get("run_date") or "?"
+    header = (
+        f"🛠 <b>{ticker}</b> agent trace — {decision}\n"
+        f"<i>{when} · run #{row['id']}</i>\n"
+    )
+    full = f"{header}\n{trace_text}"
+    for chunk in split_message(full):
+        await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+
+
+@auth_required
 async def cmd_runagent(update, ctx):
     """Agent mode — autonomous tool-calling loop. Ollama only."""
     if not ctx.args:
@@ -357,7 +441,7 @@ async def _start_run(bot, chat_id, tickers, mode):
         )
         return
 
-    provider = os.getenv("PROVIDER", "ollama")
+    provider = os.getenv("LLM_PROVIDER", "ollama")
     if provider == "ollama":
         if not check_ollama_alive():
             await bot.send_message(
@@ -481,6 +565,10 @@ async def on_button(update, ctx):
         await query.edit_message_text(f"📊 Loading {payload}...")
         await _send_last_to_chat(ctx.bot, chat_id, payload)
 
+    elif action == "trace":
+        await query.edit_message_text(f"🛠 Loading trace for {payload}...")
+        await _send_trace_to_chat(ctx.bot, chat_id, payload)
+
     elif action in ("run", "runfull", "runsolo", "runagent"):
         mode = {
             "run": "core",
@@ -514,6 +602,7 @@ def main():
     app.add_handler(CommandHandler("add", cmd_add))
     app.add_handler(CommandHandler("remove", cmd_remove))
     app.add_handler(CommandHandler("last", cmd_last))
+    app.add_handler(CommandHandler("trace", cmd_trace))
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("runfull", cmd_runfull))
     app.add_handler(CommandHandler("runsolo", cmd_runsolo))
