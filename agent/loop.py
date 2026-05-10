@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from openai import OpenAI
 
-from config import OLLAMA_MODEL as DEFAULT_MODEL
+from config import OLLAMA_MODEL as DEFAULT_MODEL, OLLAMA_NUM_CTX_BY_MODE
 from prices import tool_get_price_context, get_price_context
 from indicators import tool_get_indicator_text, get_indicator_text
 from news import (
@@ -48,11 +48,16 @@ from peers import tool_peer_comparison, peer_comparison
 # truth across all modes (solo/core/full/agent).
 DEFAULT_MAX_TOOL_CALLS: int = 10
 DEFAULT_MAX_TOKENS: int = 120_000
-DEFAULT_BASE_URL: str = "http://ml39.local:11434/v1"
+DEFAULT_BASE_URL: str = "http://ml60.local:11434/v1"
 
 # Ollama-specific. temp=0.3 stabilizes tool-arg generation without flattening
 # branching choices; default (~0.8) was producing rare ticker hallucinations.
-OLLAMA_OPTIONS: dict[str, Any] = {"num_ctx": 32768, "temperature": 0.3}
+# num_ctx comes from config.OLLAMA_NUM_CTX_BY_MODE — single source of truth
+# across all modes (matches runner.py's _make_llm wiring for solo/core).
+OLLAMA_OPTIONS: dict[str, Any] = {
+    "num_ctx": OLLAMA_NUM_CTX_BY_MODE["agent"],
+    "temperature": 0.3,
+}
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
@@ -264,7 +269,7 @@ def run_agent(
             Currently always builds an OpenAI-compatible client.
         model: Model identifier. Defaults to gpt-oss:20b.
         base_url: OpenAI-compatible endpoint URL. Defaults to the local
-            Ollama server on ml39.
+            Ollama server on ml60.
         max_tool_calls: Cap on tool calls actually executed. Final-answer
             turns don't count against this.
         max_tokens: Cumulative token cap; forces final answer when exceeded.

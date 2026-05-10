@@ -46,7 +46,7 @@ ticker = "NVDA"
 user_prompt: str = f"Analyze {ticker} and recommend BUY/SELL/HOLD."
 
 
-client = OpenAI(base_url="http://ml39.local:11434/v1", api_key="ollama")
+client = OpenAI(base_url="http://ml60.local:11434/v1", api_key="ollama")
 max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS
 remaining_tool_calls: int = max_tool_calls
 
