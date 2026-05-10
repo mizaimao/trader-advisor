@@ -45,16 +45,15 @@ def render(managed_tickers, df, status):
     col_ticker, col_run = st.columns([1, 3])
 
     with col_ticker:
-        try:
-            default_ticker_idx = managed_tickers.index(
-                st.session_state.get("explorer_ticker", managed_tickers[0])
-            )
-        except ValueError:
-            default_ticker_idx = 0
+        # Streamlit warns if you pass both `index=` and `key=` whenever
+        # session_state already has the key set (e.g. via the cross-tab
+        # nav write above). Initialize via session_state and let the
+        # widget's own state machine drive subsequent renders.
+        if st.session_state.get("explorer_ticker") not in managed_tickers:
+            st.session_state["explorer_ticker"] = managed_tickers[0]
         ticker_pick = st.selectbox(
             "Ticker",
             managed_tickers,
-            index=default_ticker_idx,
             key="explorer_ticker",
         )
 
@@ -88,14 +87,11 @@ def render(managed_tickers, df, status):
 
     with col_run:
         labels = ticker_runs["run_label"].tolist()
-        current_label = st.session_state.get("explorer_run")
-        default_run_idx = (
-            labels.index(current_label) if current_label in labels else 0
-        )
+        if st.session_state.get("explorer_run") not in labels:
+            st.session_state["explorer_run"] = labels[0]
         run_label_pick = st.selectbox(
             "Run",
             labels,
-            index=default_run_idx,
             key="explorer_run",
         )
     row = ticker_runs[ticker_runs["run_label"] == run_label_pick].iloc[0]

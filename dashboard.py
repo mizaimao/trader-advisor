@@ -196,5 +196,5 @@ if _nav_target in _TAB_INDEX:
             setTimeout(() => clearInterval(t), 1000);
         }}
         </script>""",
-        height=0,
+        height=1,
     )
