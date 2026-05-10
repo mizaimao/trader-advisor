@@ -9,6 +9,7 @@ from db import init_db, save_run, set_status
 from config import (
     get_provider, get_model, get_tickers,
     OLLAMA_BASE_URL, OLLAMA_MODEL, GEMINI_MODEL,
+    OLLAMA_NUM_CTX_BY_MODE,
     log_request,
 )
 from prompts import (
@@ -155,9 +156,15 @@ def extract_decision(text):
     return "UNKNOWN"
 
 
-def _make_llm(provider, model=None):
+def _make_llm(provider, model=None, mode=None):
     """Build an LLM client for the given provider/model.
-    
+
+    `mode` is the runner mode ("solo", "core", "agent", ...); it's used to
+    look up the per-mode Ollama context window from OLLAMA_NUM_CTX_BY_MODE
+    and pass it through as a per-request `options.num_ctx`. Without it,
+    Ollama falls back to its server-side OLLAMA_CONTEXT_LENGTH (currently
+    8K), which silently truncates solo/core prompts.
+
     API keys are read from environment variables (GOOGLE_API_KEY,
     ANTHROPIC_API_KEY, OPENAI_API_KEY). The dashboard sets these on the
     subprocess env when spawning runner.py — they are NOT mutated in the
@@ -178,12 +185,20 @@ def _make_llm(provider, model=None):
     # Default: Ollama (or compatible local OpenAI-API server)
     from langchain_openai import ChatOpenAI
     base_url = os.getenv("OLLAMA_BASE_URL", OLLAMA_BASE_URL)
-    return ChatOpenAI(
-        model=model or OLLAMA_MODEL,
-        base_url=base_url,
-        api_key="ollama",
-        temperature=0.3,
-    )
+    kwargs = {
+        "model": model or OLLAMA_MODEL,
+        "base_url": base_url,
+        "api_key": "ollama",
+        "temperature": 0.3,
+    }
+    num_ctx = OLLAMA_NUM_CTX_BY_MODE.get(mode) if mode else None
+    if num_ctx is not None:
+        # Ollama's OpenAI-compat layer accepts a non-standard `options` field
+        # alongside the standard request body; that's how non-OpenAI engine
+        # params (num_ctx, num_predict, repeat_penalty, etc.) get plumbed
+        # through. langchain's ChatOpenAI exposes this via `extra_body`.
+        kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
+    return ChatOpenAI(**kwargs)
 
 
 def _normalize_content(content):
@@ -198,7 +213,7 @@ def _normalize_content(content):
 # ── SOLO ──────────────────────────────────────────────────────────────────────
 def run_solo(ticker, today, provider, model):
     from langchain_core.messages import SystemMessage, HumanMessage
-    llm = _make_llm(provider, model)
+    llm = _make_llm(provider, model, mode="solo")
     context = fetch_context(ticker, today)
 
     log_request(provider)
@@ -213,7 +228,7 @@ def run_solo(ticker, today, provider, model):
 # ── CORE ──────────────────────────────────────────────────────────────────────
 def run_core(ticker, today, provider, model):
     from langchain_core.messages import SystemMessage, HumanMessage
-    llm = _make_llm(provider, model)
+    llm = _make_llm(provider, model, mode="core")
     context = fetch_context(ticker, today)
 
     log_request(provider)

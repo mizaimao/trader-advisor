@@ -14,6 +14,19 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL = "gemma4:26b"
 GEMINI_MODEL = "gemini-flash-latest"
 
+# Per-mode Ollama context window (num_ctx). Sized from measured prompt
+# footprints plus completion + safety margin:
+#   solo  — single call, ~6-7K prompt, 2K completion
+#   core  — 3 calls, synthesizer turn carries prior responses (~12-14K input)
+#   agent — tool results accumulate across turns; this is the heaviest
+# Full mode is omitted: TradingAgents manages its own LLM clients and falls
+# back to the Ollama server's OLLAMA_CONTEXT_LENGTH default.
+OLLAMA_NUM_CTX_BY_MODE = {
+    "solo":  16_384,
+    "core":  24_576,
+    "agent": 32_768,
+}
+
 def get_provider():
     """Resolve provider from CLI args or env."""
     provider = os.getenv("LLM_PROVIDER", "ollama")
