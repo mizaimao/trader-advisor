@@ -31,6 +31,12 @@ Produce a concise analysis covering:
 3. Catalysts (earnings, insider activity, news)
 4. Final decision: BUY / SELL / HOLD / OVERWEIGHT / UNDERWEIGHT
 
+CRITICAL OUTPUT RULE: The very last line of your response MUST be exactly:
+FINAL DECISION: <X>
+where <X> is one of: BUY, SELL, HOLD, OVERWEIGHT, UNDERWEIGHT (uppercase, single word).
+Do not paraphrase to "Final Verdict", "Bottom Line", or "Recommendation".
+Do not add prose, punctuation, or commentary after this line.
+
 For short-term trades:
 - Avoid strong BUY/SELL within 3 days of earnings (event risk)
 - Heavy recent insider selling near highs is a yellow flag
@@ -142,7 +148,11 @@ Produce a concise final analysis covering:
 5. Key Disagreement: which point of disagreement between the analyst and advocate matters most, and how you resolve it
 6. Final Decision: BUY / SELL / HOLD / OVERWEIGHT / UNDERWEIGHT
 
-End with: FINAL DECISION: <decision>"""
+CRITICAL OUTPUT RULE: The very last line of your response MUST be exactly:
+FINAL DECISION: <X>
+where <X> is one of: BUY, SELL, HOLD, OVERWEIGHT, UNDERWEIGHT (uppercase, single word).
+Do not paraphrase to "Final Verdict", "Bottom Line", or "Recommendation".
+Do not add prose, punctuation, or commentary after this line."""
 
 SYNTHESIS_USER = """Synthesize the panel's analysis of {ticker} (as of {today}).
 
