@@ -148,11 +148,77 @@ def fetch_context(ticker, today):
     return "\n\n".join(sections)
 
 
+_VALID_DECISIONS = {"BUY", "SELL", "HOLD", "OVERWEIGHT", "UNDERWEIGHT"}
+# Phrasings the LLMs actually use in practice. "FINAL DECISION:" is what the
+# prompt asks for, but models paraphrase to "Bottom Line", "Final Verdict",
+# "Recommendation:", etc. Listed in priority order — the first match wins.
+_DECISION_PHRASINGS = (
+    "FINAL DECISION:",
+    "FINAL VERDICT:",
+    "FINAL RECOMMENDATION:",
+    "RECOMMENDATION:",
+    "DECISION:",
+    "BOTTOM LINE:",
+    "VERDICT:",
+)
+
+
+def _strip_markdown(s: str) -> str:
+    return s.replace("**", "").replace("*", "").replace("_", "").replace("`", "").strip()
+
+
+def _normalize_decision(raw: str) -> str | None:
+    """Pull a canonical decision word out of `raw`, or None if not extractable."""
+    cleaned = _strip_markdown(raw).rstrip(".,!:;").upper()
+    # Sometimes the model writes 'HOLD with tight stops' — take the leading word
+    head = cleaned.split()[0] if cleaned else ""
+    if head in _VALID_DECISIONS:
+        return head
+    # Fallback: any of the canonical words appearing anywhere
+    for word in _VALID_DECISIONS:
+        if word in cleaned.split():
+            return word
+    return None
+
+
 def extract_decision(text):
-    for line in reversed(text.splitlines()):
-        if "FINAL DECISION:" in line.upper():
-            decision = line.split(":")[-1].strip()
-            return decision.replace("**", "").replace("*", "").replace("_", "").strip()
+    """Pull a BUY/SELL/HOLD/OVERWEIGHT/UNDERWEIGHT decision from an analysis.
+
+    Strategy:
+      1. Look for an explicit phrasing line ("FINAL DECISION: HOLD", "Bottom
+         Line: BUY", etc.) scanning bottom-up — the last such line wins,
+         since prose summaries often repeat the verdict near the end.
+      2. If none found, scan the last ~25 non-empty lines for a standalone
+         decision token in bolded/heading form (e.g. `**HOLD.**`,
+         `### Bottom Line **BUY**`).
+      3. Return "UNKNOWN" if nothing matches.
+    """
+    if not text:
+        return "UNKNOWN"
+    lines = text.splitlines()
+
+    # Pass 1: explicit phrasings, bottom-up.
+    for line in reversed(lines):
+        upper = line.upper()
+        for phrase in _DECISION_PHRASINGS:
+            if phrase in upper:
+                tail = line[upper.index(phrase) + len(phrase):]
+                decision = _normalize_decision(tail)
+                if decision:
+                    return decision
+
+    # Pass 2: trailing-region keyword scan. Look at the last 25 non-empty
+    # lines; pick the most recent line that contains exactly one of the
+    # canonical tokens after stripping markdown. This handles
+    # `**HOLD.**` / `### Bottom Line **BUY**` style endings.
+    nonempty = [ln for ln in lines if ln.strip()]
+    for line in reversed(nonempty[-25:]):
+        cleaned = _strip_markdown(line).rstrip(".,!:;").upper()
+        tokens = cleaned.split()
+        hits = [t for t in tokens if t in _VALID_DECISIONS]
+        if len(hits) == 1:
+            return hits[0]
+
     return "UNKNOWN"
 
 
@@ -182,32 +248,70 @@ def _make_llm(provider, model=None, mode=None):
         from langchain_openai import ChatOpenAI
         return ChatOpenAI(model=model or "gpt-5-4-turbo", temperature=0.3)
 
-    # Default: Ollama (or compatible local OpenAI-API server)
-    from langchain_openai import ChatOpenAI
+    # Default: Ollama via langchain-ollama (native /api/chat endpoint).
+    # We deliberately do NOT use langchain-openai here even though Ollama
+    # exposes /v1/chat/completions: that compatibility path silently drops
+    # the non-standard `options` field, so per-request num_ctx never reaches
+    # the model and prompts get truncated to the server's default ceiling.
+    # /api/chat honors `num_ctx` directly. Strip the trailing /v1 from the
+    # base URL since ChatOllama hits /api/* not /v1/*.
+    from langchain_ollama import ChatOllama
     base_url = os.getenv("OLLAMA_BASE_URL", OLLAMA_BASE_URL)
+    if base_url.rstrip("/").endswith("/v1"):
+        base_url = base_url.rstrip("/")[:-3]
     kwargs = {
         "model": model or OLLAMA_MODEL,
         "base_url": base_url,
-        "api_key": "ollama",
         "temperature": 0.3,
+        # Thinking-capable models (gemma4 variants, gpt-oss, etc.) emit a
+        # separate `thinking` field. For stock analysis, the reasoning IS
+        # the analysis — it contains the actual evaluation work, while
+        # `content` is just the final verdict. Setting reasoning=True
+        # surfaces it as response.additional_kwargs['reasoning_content']
+        # so we can save both. _normalize_content concatenates them.
+        "reasoning": True,
     }
     num_ctx = OLLAMA_NUM_CTX_BY_MODE.get(mode) if mode else None
     if num_ctx is not None:
-        # Ollama's OpenAI-compat layer accepts a non-standard `options` field
-        # alongside the standard request body; that's how non-OpenAI engine
-        # params (num_ctx, num_predict, repeat_penalty, etc.) get plumbed
-        # through. langchain's ChatOpenAI exposes this via `extra_body`.
-        kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
-    return ChatOpenAI(**kwargs)
+        kwargs["num_ctx"] = num_ctx
+    return ChatOllama(**kwargs)
 
 
-def _normalize_content(content):
-    if isinstance(content, list):
-        return "\n".join(
+def _normalize_content(response_or_content):
+    """Coerce a langchain message (or its `.content`) to an analysis string.
+
+    For thinking-capable models the reasoning trace lives in
+    `response.additional_kwargs['reasoning_content']` — a sibling field to
+    `.content`. Both are saved: reasoning first (the analysis trace),
+    then content (the final verdict). Order matters: extract_decision
+    scans bottom-up, so the FINAL DECISION line in `content` is the first
+    thing it finds. If only one of the two fields is populated, return
+    that one alone (no separator clutter).
+    """
+    # Caller may pass either an AIMessage-like object or a raw content value.
+    if hasattr(response_or_content, "content"):
+        raw_content = response_or_content.content
+        reasoning = (
+            response_or_content.additional_kwargs or {}
+        ).get("reasoning_content") or ""
+    else:
+        raw_content = response_or_content
+        reasoning = ""
+
+    if isinstance(raw_content, list):
+        content = "\n".join(
             part.get("text", "") if isinstance(part, dict) else str(part)
-            for part in content
+            for part in raw_content
         )
-    return content
+    else:
+        content = raw_content or ""
+
+    reasoning = (reasoning or "").strip()
+    content = (content or "").strip()
+
+    if reasoning and content:
+        return f"## Reasoning\n\n{reasoning}\n\n---\n\n## Final Analysis\n\n{content}"
+    return reasoning or content
 
 
 # ── SOLO ──────────────────────────────────────────────────────────────────────
@@ -221,7 +325,7 @@ def run_solo(ticker, today, provider, model):
         SystemMessage(content=SIMPLE_SYSTEM),
         HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context)),
     ])
-    analysis = _normalize_content(response.content)
+    analysis = _normalize_content(response)
     return analysis, extract_decision(analysis), None
 
 
@@ -236,7 +340,7 @@ def run_core(ticker, today, provider, model):
         SystemMessage(content=SIMPLE_SYSTEM),
         HumanMessage(content=SIMPLE_USER.format(ticker=ticker, today=today, context=context)),
     ])
-    initial_analysis = _normalize_content(initial_resp.content)
+    initial_analysis = _normalize_content(initial_resp)
     initial_decision = extract_decision(initial_analysis)
 
     log_request(provider)
@@ -247,7 +351,7 @@ def run_core(ticker, today, provider, model):
             initial_analysis=initial_analysis, context=context,
         )),
     ])
-    advocate_analysis = _normalize_content(advocate_resp.content)
+    advocate_analysis = _normalize_content(advocate_resp)
 
     log_request(provider)
     synthesis_resp = llm.invoke([
@@ -258,7 +362,7 @@ def run_core(ticker, today, provider, model):
             advocate_analysis=advocate_analysis, context=context,
         )),
     ])
-    synthesis_analysis = _normalize_content(synthesis_resp.content)
+    synthesis_analysis = _normalize_content(synthesis_resp)
     synthesis_decision = extract_decision(synthesis_analysis)
 
     extra = {

@@ -23,7 +23,7 @@ GEMINI_MODEL = "gemini-flash-latest"
 # back to the Ollama server's OLLAMA_CONTEXT_LENGTH default.
 OLLAMA_NUM_CTX_BY_MODE = {
     "solo":  16_384,
-    "core":  24_576,
+    "core":  32_768,
     "agent": 32_768,
 }
 

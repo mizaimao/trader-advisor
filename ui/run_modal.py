@@ -282,10 +282,10 @@ def run_analysis_modal(
         column_config={
             "select": st.column_config.CheckboxColumn("Run", default=False),
             "ticker": st.column_config.TextColumn("Ticker", disabled=True),
-            "last_run_age": st.column_config.TextColumn(
+            "last_run": st.column_config.TextColumn(
                 "Last run", disabled=True,
+                help="Time since most recent run, with the mode in parens.",
             ),
-            "last_mode": st.column_config.TextColumn("Mode", disabled=True),
             "last_decision": st.column_config.TextColumn(
                 "Verdict", disabled=True,
             ),
@@ -468,8 +468,7 @@ def _build_freshness_df(managed_tickers, df, default_select=False):
         row = {
             "select": default_select,
             "ticker": ticker,
-            "last_run_age": "—",
-            "last_mode": "—",
+            "last_run": "—",
             "last_decision": "—",
         }
         if not df.empty and ticker in set(df["ticker"]):
@@ -477,26 +476,35 @@ def _build_freshness_df(managed_tickers, df, default_select=False):
                 "id", ascending=False
             )
             latest = ticker_runs.iloc[0]
-            row["last_mode"] = latest.get("mode") or "—"
             row["last_decision"] = latest.get("decision") or "—"
             ts = latest.get("created_at") or latest.get("run_date")
-            row["last_run_age"] = _age_label(ts)
+            row["last_run"] = _last_run_label(ts, latest.get("mode"))
         rows.append(row)
     return pd.DataFrame(rows)
 
 
 def _age_label(ts):
-    """Convert a timestamp to 'Xh ago' / 'Xd ago' / 'Just now' / '—'."""
+    """Convert a UTC timestamp to 'Xh ago' / 'Xd ago' / 'Just now' / '—'.
+
+    SQLite's CURRENT_TIMESTAMP (used by db.runs.created_at default) stores
+    UTC. We compare against datetime.utcnow() so timezone offsets don't
+    make recent rows look like they're "in the future" and hide the value.
+    """
     if not ts:
         return "—"
     try:
         dt = pd.to_datetime(ts)
-        delta = datetime.now() - dt.to_pydatetime().replace(tzinfo=None)
+        # Drop any tz info — we treat both sides as naive UTC.
+        if dt.tzinfo is not None:
+            dt = dt.tz_convert("UTC").tz_localize(None)
+        delta = datetime.utcnow() - dt.to_pydatetime()
         secs = delta.total_seconds()
     except Exception:
         return "—"
     if secs < 0:
-        return "—"
+        # Clock skew or future-dated row — treat as "just now" rather than
+        # hiding it behind "—" the way the old code did.
+        return "Just now"
     if secs < 60:
         return "Just now"
     if secs < 3600:
@@ -505,6 +513,16 @@ def _age_label(ts):
         return f"{int(secs / 3600)}h ago"
     days = int(secs / 86400)
     return f"{days}d ago"
+
+
+def _last_run_label(ts, mode):
+    """Format the freshness-table 'Last run' cell as '1h ago (solo)'."""
+    age = _age_label(ts)
+    if age == "—":
+        return "—"
+    if not mode:
+        return age
+    return f"{age} ({mode})"
 
 
 def _estimate_total_tokens(

@@ -149,18 +149,31 @@ def _disabled_tool_names() -> set[str]:
 def normalize_assistant_msg(assistant_msg) -> dict:
     """Convert assistant message to a dict the API accepts on the next call.
 
-    Needed because GPT-OSS sometimes emits content as a dict not string, and
-    carries fields (reasoning, refusal, audio, etc.) that break round-trip.
+    Needed because GPT-OSS / gemma4 / qwen3 emit content as a dict not string,
+    and carry fields (reasoning, refusal, audio, etc.) that break round-trip
+    when fed back to /v1/chat/completions.
+
+    Reasoning continuity: post-Ollama-0.7, thinking-capable models route their
+    chain-of-thought to a separate `reasoning` field while `content` stays
+    empty. If we strip reasoning before round-tripping, each next turn the
+    model has no record of what it was tracking and loops forever re-fetching
+    the same tools (observed pattern across gpt-oss:20b, qwen3.6:35b, gemma4
+    after the Ollama upgrade). Fix: when content is empty but reasoning has
+    substance, promote reasoning into content so the next turn sees the
+    model's prior thoughts as ordinary assistant content. This preserves
+    cross-turn state without requiring the /api/chat native endpoint.
     """
     msg = assistant_msg.model_dump(exclude_unset=True, exclude_none=True)
+    reasoning = msg.pop("reasoning", None) or ""
 
     content = msg.get("content")
-    if content is None:
-        msg["content"] = ""
-    elif not isinstance(content, str):
-        msg["content"] = str(content)
+    if not isinstance(content, str):
+        content = "" if content is None else str(content)
 
-    msg.pop("reasoning", None)
+    if not content.strip() and reasoning.strip():
+        content = reasoning
+    msg["content"] = content
+
     msg.pop("function_call", None)
     msg.pop("refusal", None)
     msg.pop("annotations", None)
@@ -212,22 +225,38 @@ def build_trace_entry(
 
 def build_system_message(
     *,
+    ticker: str,
     remaining_tool_calls: int,
     max_tool_calls: int,
     must_finalize: bool = False,
 ) -> dict[str, str]:
-    """System message with the budget reminder appended.
+    """System message with the ticker + budget reminder appended.
 
-    Three states: normal, low-budget warning (<20% remaining), forced-finalize
-    (budget exhausted or token cap hit).
+    Three budget states: normal, low-budget warning (<20% remaining),
+    forced-finalize (budget exhausted or token cap hit).
+
+    The ticker reminder is re-asserted every turn because some tool results
+    (indicators, options, news) don't embed the ticker name. Without a
+    reminder, weaker models occasionally lose the anchor and hallucinate
+    that the tool messages were user-provided — then ask the user "which
+    ticker is this for?" mid-conversation despite having called the tools
+    themselves.
     """
+    ticker_msg: str = (
+        f"\n\n[ANCHOR: You are analyzing **{ticker}**. Any tool messages "
+        f"above are data YOU fetched earlier in this conversation — NOT "
+        f"user-provided input. Synthesize them; do not ask the user for "
+        f"the ticker.]"
+    )
     budget_msg: str = (
-        f"[Budget: Now you have {remaining_tool_calls}/{max_tool_calls} calls so use them wisely.]"
+        f"\n[Budget: Now you have {remaining_tool_calls}/{max_tool_calls} calls so use them wisely.]"
     )
     if must_finalize:
         budget_msg += (
-            "\n[Budget exhausted. Produce your final analysis now without further "
-            "tool calls. End with FINAL DECISION: <BUY|SELL|HOLD>.]"
+            f"\n[Budget exhausted. Produce your final {ticker} analysis now "
+            f"without further tool calls. The very last line of your response "
+            f"MUST be exactly: FINAL DECISION: <BUY|SELL|HOLD> "
+            f"(uppercase, no quotes, no prose after).]"
         )
     elif max_tool_calls > 0 and remaining_tool_calls / max_tool_calls < 0.2:
         budget_msg += (
@@ -235,7 +264,7 @@ def build_system_message(
             f"{remaining_tool_calls} tool calls remaining. Decide wisely before "
             f"calling another tool.]"
         )
-    return {"role": "system", "content": AGENT_SYSTEM + budget_msg}
+    return {"role": "system", "content": AGENT_SYSTEM + ticker_msg + budget_msg}
 
 
 def _flush_trace(trace_path: str | None, trace: list[dict]) -> None:
@@ -316,6 +345,7 @@ def run_agent(
         )
 
         sys_msg = build_system_message(
+            ticker=ticker,
             remaining_tool_calls=max(budget_remaining, 0),
             max_tool_calls=max_tool_calls,
             must_finalize=must_finalize,
@@ -346,8 +376,17 @@ def run_agent(
         # Termination paths: model finalized voluntarily, OR we forced finalize
         if not assistant_msg.tool_calls or must_finalize:
             _flush_trace(trace_path, trace)
+            # Post-Ollama-0.7 thinking-capable models often emit the entire
+            # final answer into `reasoning` with `content` empty. Fall back
+            # to reasoning so the saved analysis isn't blank. The trace
+            # already stores both fields separately for the dashboard view.
+            final_text = (
+                (assistant_msg.content or "").strip()
+                or (getattr(assistant_msg, "reasoning", None) or "").strip()
+                or ""
+            )
             return (
-                assistant_msg.content or "",
+                final_text,
                 {
                     "trace": trace,
                     "prompt_tokens": prompt_tokens,
