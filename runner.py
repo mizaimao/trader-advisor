@@ -271,7 +271,10 @@ def _make_llm(provider, model=None, mode=None):
         # so we can save both. _normalize_content concatenates them.
         "reasoning": True,
     }
-    num_ctx = OLLAMA_NUM_CTX_BY_MODE.get(mode) if mode else None
+    # CLI --num-ctx (if provided) wins over the per-mode dict default.
+    num_ctx = _resolve_num_ctx()
+    if num_ctx is None and mode:
+        num_ctx = OLLAMA_NUM_CTX_BY_MODE.get(mode)
     if num_ctx is not None:
         kwargs["num_ctx"] = num_ctx
     return ChatOllama(**kwargs)
@@ -465,6 +468,22 @@ def _resolve_max_tokens():
     return None
 
 
+def _resolve_num_ctx():
+    """Read --num-ctx CLI arg, or None to use the per-mode default.
+
+    When the bot fires a run, it picks a num_ctx that matches Ollama's
+    natural context for that model (e.g. 256K for qwen3.5:122b) so the
+    server doesn't reload. CLI users can also pass this directly.
+    """
+    if "--num-ctx" in sys.argv:
+        idx = sys.argv.index("--num-ctx")
+        try:
+            return int(sys.argv[idx + 1])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
 def run_agent(ticker, today, provider, model):
     """Adapter from agent.loop.run_agent (2-tuple) to the runner's 3-tuple shape.
 
@@ -478,6 +497,9 @@ def run_agent(ticker, today, provider, model):
     max_tk = _resolve_max_tokens()
     if max_tk is not None:
         kwargs["max_tokens"] = max_tk
+    num_ctx = _resolve_num_ctx()
+    if num_ctx is not None:
+        kwargs["num_ctx"] = num_ctx
     analysis, meta = _run_agent_loop(**kwargs)
     decision = extract_decision(analysis)
     # Token totals are inside meta because langchain's get_openai_callback
