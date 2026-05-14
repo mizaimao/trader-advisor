@@ -114,6 +114,177 @@ def check_ollama_alive(timeout=2):
         return False
 
 
+def _ollama_root() -> tuple[str, str, int]:
+    """Return (base_root_url, host, port). Strips /v1 since /api/* is at the root."""
+    base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    parsed = urlparse(base)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 11434
+    scheme = parsed.scheme or "http"
+    return f"{scheme}://{host}:{port}", host, port
+
+
+def check_server_status(timeout: float = 3.0) -> dict:
+    """Probe ml60 (or whichever Ollama host is configured) for:
+       - HTTP reachability (latency)
+       - Currently loaded models with expires_at
+       - Any error encountered
+
+    Returns a dict — never raises. Designed for both the /server command
+    and the stuck-run nudge enrichment.
+    """
+    import time
+    import requests as _requests
+
+    base_root, host, port = _ollama_root()
+    out: dict = {"host": host, "port": port, "url": base_root}
+
+    t0 = time.monotonic()
+    try:
+        r = _requests.get(f"{base_root}/api/tags", timeout=timeout)
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        out["reachable"] = r.ok
+        out["latency_ms"] = latency_ms
+        if not r.ok:
+            out["error"] = f"HTTP {r.status_code}"
+    except _requests.exceptions.Timeout:
+        out["reachable"] = False
+        out["error"] = f"timed out after {timeout}s"
+        return out
+    except _requests.exceptions.ConnectionError as e:
+        out["reachable"] = False
+        out["error"] = f"connection refused / host unreachable"
+        return out
+    except Exception as e:
+        out["reachable"] = False
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+
+    if not out.get("reachable"):
+        return out
+
+    # /api/ps — currently loaded models
+    try:
+        r = _requests.get(f"{base_root}/api/ps", timeout=timeout)
+        if r.ok:
+            data = r.json()
+            out["loaded"] = data.get("models", []) or []
+        else:
+            out["loaded"] = []
+    except Exception as e:
+        out["loaded"] = []
+        out["ps_error"] = str(e)
+    return out
+
+
+def check_runner_proc(pid: int | None) -> dict | None:
+    """Read /proc/<pid>/status to classify the runner's wait state.
+
+    Returns None if pid is unknown or the process is gone (proc dir
+    missing). Otherwise returns {pid, state_char, state_name} where
+    state_char is one of:
+        R  running
+        S  sleeping (interruptible, usually waiting on socket)
+        D  uninterruptible wait (disk I/O, or stuck in kernel)
+        T  stopped
+        Z  zombie (already exited, waiting for parent to reap)
+    """
+    if not pid:
+        return None
+    status_path = f"/proc/{int(pid)}/status"
+    if not os.path.exists(status_path):
+        return None
+    state_char = "?"
+    state_name = "unknown"
+    try:
+        with open(status_path) as f:
+            for line in f:
+                if line.startswith("State:"):
+                    # Format: "State:  S (sleeping)"
+                    parts = line.split(None, 2)
+                    if len(parts) >= 2:
+                        state_char = parts[1]
+                    if len(parts) >= 3:
+                        state_name = parts[2].strip().strip("()")
+                    break
+    except OSError:
+        return None
+    return {"pid": int(pid), "state_char": state_char, "state_name": state_name}
+
+
+def _fmt_expires_at(iso_str: str | None) -> str:
+    """Convert Ollama's expires_at ISO string to a friendly relative duration."""
+    if not iso_str:
+        return "?"
+    try:
+        # Ollama returns e.g. "2026-05-12T15:30:00.123-04:00"
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        # Strip tz so we can subtract naively against datetime.now
+        if dt.tzinfo is not None:
+            from datetime import timezone
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            now = datetime.utcnow()
+        else:
+            now = datetime.now()
+        secs = int((dt - now).total_seconds())
+        if secs < 0:
+            return "expired"
+        if secs < 60:
+            return f"{secs}s"
+        if secs < 3600:
+            return f"{secs // 60}m"
+        return f"{secs // 3600}h{(secs % 3600) // 60}m"
+    except Exception:
+        return iso_str[:19]
+
+
+def _fmt_server_diagnostics(server: dict, proc_info: dict | None, status: dict) -> str:
+    """Render the diagnostics for /server and for the stuck-run nudge."""
+    lines: list[str] = []
+    url = server.get("url", "?")
+    lines.append(f"🖥 <b>Server</b>: <code>{url}</code>")
+
+    if server.get("reachable"):
+        ms = server.get("latency_ms", "?")
+        lines.append(f"  ✓ Reachable ({ms}ms)")
+    else:
+        err = server.get("error", "unknown error")
+        lines.append(f"  ✗ <b>Not reachable</b> — {err}")
+        return "\n".join(lines)
+
+    loaded = server.get("loaded", []) or []
+    if loaded:
+        lines.append("  📦 Loaded models:")
+        for m in loaded:
+            name = m.get("name", "?")
+            size_vram = m.get("size_vram") or 0
+            gb = size_vram / (1024 ** 3)
+            exp = _fmt_expires_at(m.get("expires_at"))
+            lines.append(f"     • <code>{name}</code> — {gb:.1f} GB · expires in {exp}")
+    else:
+        lines.append("  📦 No models loaded")
+
+    # Active run, if any
+    if status.get("status") == "running":
+        cur = status.get("current") or "?"
+        mode = (status.get("mode") or "?")
+        pid = status.get("pid")
+        lines.append(
+            f"  ⚙ Active run: <b>{cur}</b> · {mode}"
+            + (f" · PID {pid}" if pid else "")
+        )
+        if proc_info:
+            lines.append(
+                f"     state: <code>{proc_info['state_char']}</code> "
+                f"({proc_info['state_name']})"
+            )
+        elif pid:
+            lines.append(f"     (process /proc/{pid} not found — likely just exited)")
+    else:
+        lines.append("  💤 No active run")
+    return "\n".join(lines)
+
+
 def get_tickers_list():
     if not os.path.exists(TICKERS_FILE):
         return []
@@ -734,6 +905,43 @@ async def cmd_text(update, ctx):
     await _next_cascade_step(ctx.bot, chat_id, ticker, None, None)
 
 
+def _stuck_verdict(server: dict, proc_info: dict | None) -> str:
+    """One-line read on whether the run is actually stuck.
+
+    Signals:
+      - Server unreachable        → almost certainly stuck (network/host)
+      - Server up, no models      → Ollama purged the model; our request died
+      - Process state D           → uninterruptible wait, often genuine hang
+      - Process state S + alive   → waiting on socket reply, probably just slow
+      - Process state Z           → already dead, parent hasn't reaped
+    """
+    if not server.get("reachable"):
+        return "❌ Ollama unreachable — almost certainly stuck. Kill recommended."
+    loaded = server.get("loaded") or []
+    if not loaded:
+        return (
+            "⚠️ Ollama is up but no models are loaded — your request "
+            "probably timed out on the server side. Kill recommended."
+        )
+    if proc_info:
+        sc = proc_info["state_char"]
+        if sc == "Z":
+            return "❌ Runner is a zombie — already dead. Kill to reap."
+        if sc == "D":
+            return (
+                "⚠️ Runner is in uninterruptible wait (state D) — often a "
+                "genuine hang (network/disk). Kill recommended."
+            )
+        if sc == "S":
+            return (
+                "✓ Looks healthy — runner waiting on Ollama's reply (state S), "
+                "model is loaded. Probably just slow. Wait if you can."
+            )
+        if sc == "R":
+            return "✓ Runner actively running (state R). Probably fine, just slow."
+    return "Ambiguous — diagnostics above. Your call."
+
+
 async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
     """Wait for runner subprocess to finish, then send the full analysis for
     each ticker.
@@ -766,6 +974,15 @@ async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
         elapsed = time.monotonic() - ticker_start
         if elapsed > threshold:
             nudged = True
+            # Probe ml60 + read /proc state so the user has more to go on
+            # than just "elapsed > threshold".
+            server = check_server_status()
+            proc_info = check_runner_proc(proc.pid)
+            diag = _fmt_server_diagnostics(server, proc_info, s)
+
+            # Heuristic verdict — combine the signals into a one-line read
+            verdict = _stuck_verdict(server, proc_info)
+
             kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     "☠️ Kill", callback_data=f"killrun|{proc.pid}",
@@ -777,8 +994,9 @@ async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
                 text=(
                     f"⚠️ The <b>{mode_label}</b> run on <b>{cur}</b> has been "
                     f"going {int(elapsed)}s — typical {mode_label} runs "
-                    f"finish in under {threshold}s.\n\nMight be stuck. "
-                    f"Kill it?"
+                    f"finish in under {threshold}s.\n\n"
+                    f"{diag}\n\n"
+                    f"<b>Read</b>: {verdict}"
                 ),
                 parse_mode="HTML",
                 reply_markup=kb,
@@ -814,6 +1032,16 @@ async def cmd_queue(update, ctx):
         prefix = "✅" if i < completed else ("⏳" if i == completed else "⏸")
         msg += f"{prefix} {t}\n"
     await update.message.reply_text(msg)
+
+
+@auth_required
+async def cmd_server(update, ctx):
+    """Probe the Ollama server + show any active run's process state."""
+    status = get_status()
+    server = check_server_status()
+    proc_info = check_runner_proc(status.get("pid"))
+    text = _fmt_server_diagnostics(server, proc_info, status)
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 @auth_required
@@ -972,6 +1200,7 @@ def main():
     app.add_handler(CommandHandler("runsolo", cmd_runsolo))
     app.add_handler(CommandHandler("runagent", cmd_runagent))
     app.add_handler(CommandHandler("queue", cmd_queue))
+    app.add_handler(CommandHandler("server", cmd_server))
     app.add_handler(CommandHandler("kill", cmd_kill))
     app.add_handler(CallbackQueryHandler(on_button))
     # Free-text shorthand handler — MUST come before the COMMAND catch-all
