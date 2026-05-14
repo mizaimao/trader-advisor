@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     resolve_model, resolve_mode, get_agent_budget,
     AGENT_BUDGETS_BY_MODEL,
+    STUCK_THRESHOLD_SECONDS,
 )
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
@@ -734,9 +735,54 @@ async def cmd_text(update, ctx):
 
 
 async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
-    """Wait for runner subprocess to finish, then send the full analysis for each ticker."""
+    """Wait for runner subprocess to finish, then send the full analysis for
+    each ticker.
+
+    While the subprocess runs, we also watch for stuck tickers. Threshold
+    is per-mode (config.STUCK_THRESHOLD_SECONDS) and is reset each time the
+    runner advances to a new ticker — so a healthy multi-ticker batch where
+    each ticker takes 30s doesn't trigger a false alarm at total elapsed.
+    The nudge fires at most once per run.
+    """
+    import time
+    threshold = STUCK_THRESHOLD_SECONDS.get(mode_label, 300)
+    last_current: str | None = None
+    ticker_start: float = time.monotonic()
+    nudged: bool = False
+
     while proc.poll() is None:
         await asyncio.sleep(2)
+        if nudged:
+            continue
+        # Track per-ticker elapsed by watching status.current. When the
+        # runner advances, reset the per-ticker clock.
+        s = get_status()
+        cur = s.get("current")
+        if cur != last_current:
+            last_current = cur
+            ticker_start = time.monotonic()
+        if not cur:
+            continue
+        elapsed = time.monotonic() - ticker_start
+        if elapsed > threshold:
+            nudged = True
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "☠️ Kill", callback_data=f"killrun|{proc.pid}",
+                ),
+                InlineKeyboardButton("⏳ Wait", callback_data="cancel"),
+            ]])
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"⚠️ The <b>{mode_label}</b> run on <b>{cur}</b> has been "
+                    f"going {int(elapsed)}s — typical {mode_label} runs "
+                    f"finish in under {threshold}s.\n\nMight be stuck. "
+                    f"Kill it?"
+                ),
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
 
     if proc.returncode != 0:
         await bot.send_message(
@@ -804,6 +850,26 @@ async def on_button(update, ctx):
 
     if data == "cancel":
         await query.edit_message_text("Cancelled.")
+        return
+
+    # Stuck-run kill button: callback sent from the watcher's nudge.
+    # Format: killrun|<pid>
+    if data.startswith("killrun|"):
+        parts = data.split("|", 1)
+        pid_str = parts[1] if len(parts) == 2 else ""
+        try:
+            pid = int(pid_str)
+            os.kill(pid, 15)  # SIGTERM — runner closes DB cleanly on this
+            await query.edit_message_text(
+                f"☠️ Sent kill signal to PID {pid}. The watcher will report "
+                f"the failed exit shortly.",
+            )
+        except (ValueError, ProcessLookupError):
+            await query.edit_message_text(
+                "Process already gone — likely finished or was killed already.",
+            )
+        except Exception as e:
+            await query.edit_message_text(f"Kill failed: {e}")
         return
 
     # Save-prompt callbacks: user chose Save & Run / Run Only.
