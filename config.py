@@ -100,6 +100,19 @@ AGENT_BUDGETS_DEFAULT: dict = {
 }
 
 
+# Stuck-run detection — Telegram bot nudges the user with [Kill]/[Wait]
+# buttons when the current ticker has been running longer than this.
+# Thresholds derived from the runs DB: roughly 3× P95 per mode, so a
+# legitimately slow run (network blip, big context reload) doesn't false-
+# positive but a truly hung process surfaces within a few minutes.
+STUCK_THRESHOLD_SECONDS: dict[str, int] = {
+    "solo":   90,    # p95 32s
+    "core":   240,   # p95 84s
+    "agent":  240,   # p95 80s
+    "full":   900,   # p95 322s; full mode is genuinely slow
+}
+
+
 def get_agent_budget(model: str) -> dict:
     """Return the agent-mode budget for a model. Falls back to defaults
     for unknown models."""
