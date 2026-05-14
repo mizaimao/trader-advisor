@@ -24,8 +24,107 @@ GEMINI_MODEL = "gemini-flash-latest"
 OLLAMA_NUM_CTX_BY_MODE = {
     "solo":  16_384,
     "core":  32_768,
-    "agent": 32_768,
+    # Agent's tool-call loop accumulates ALL prior tool results in the
+    # conversation; 21 tool calls × ~3K each + thinking traces can blow
+    # past 60K. Setting 128K so a long-running multi-tool agent doesn't
+    # silently truncate the head of the message list and start re-fetching
+    # data it already has. KV cache for gpt-oss:120b at 128K ≈ 25 GB,
+    # fits comfortably on the 96 GB host with NUM_PARALLEL=1.
+    "agent": 131_072,
 }
+
+
+# ── Telegram bot — short-name resolution ─────────────────────────────────────
+# Users text the bot in shorthand like "nvda qwen agent". MODEL_ALIASES maps
+# each casual fragment to the canonical Ollama model id. Aliases are
+# matched case-insensitively. Multiple aliases may resolve to the same model.
+MODEL_ALIASES: dict[str, str] = {
+    # qwen family
+    "qwen":         "qwen3.5:122b",
+    "qwen122":      "qwen3.5:122b",
+    "qwen3.5":      "qwen3.5:122b",
+    "qwen32":       "qwen3:32b",
+    "qwen3":        "qwen3:32b",
+    "qwen35":       "qwen3.6:35b",
+    "qwen3.6":      "qwen3.6:35b",
+    # gpt-oss family
+    "gpt":          "gpt-oss:120b",
+    "gpt-oss":      "gpt-oss:120b",
+    "gptoss":       "gpt-oss:120b",
+    "gpt120":       "gpt-oss:120b",
+    "gpt20":        "gpt-oss:20b",
+    # gemma family
+    "gemma":        "gemma4:26b",
+    "gemma4":       "gemma4:26b",
+    "gemma26":      "gemma4:26b",
+    "gemma31":      "gemma4:31b",
+    # llama
+    "llama":        "llama3.3:70b",
+    "llama3":       "llama3.3:70b",
+    "llama70":      "llama3.3:70b",
+    # deepseek r1
+    "deepseek":     "deepseek-r1:32b",
+    "r1":           "deepseek-r1:32b",
+    "ds":           "deepseek-r1:32b",
+}
+
+MODE_ALIASES: dict[str, str] = {
+    "solo":  "solo",
+    "core":  "core",
+    "full":  "full",
+    "agent": "agent",
+    "auto":  "agent",
+}
+
+
+# Per-model agent budgets — used when launching agent runs from the bot.
+# Match Ollama's "natural" context size for each model so the model doesn't
+# need to reload between runs (reload costs ~30-60s for the 100B+ models).
+# Fall back to AGENT_BUDGETS_DEFAULT for unknown models.
+AGENT_BUDGETS_BY_MODEL: dict[str, dict] = {
+    "qwen3.5:122b":   {"max_tool_calls": 30, "max_tokens": 2_000_000, "num_ctx": 262_144},
+    "gpt-oss:120b":   {"max_tool_calls": 20, "max_tokens":   500_000, "num_ctx": 131_072},
+    "gpt-oss:20b":    {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
+    "qwen3.6:35b":    {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
+    "qwen3:32b":      {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
+    "llama3.3:70b":   {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
+    "deepseek-r1:32b":{"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
+    "gemma4:26b":     {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
+    "gemma4:31b":     {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
+}
+
+AGENT_BUDGETS_DEFAULT: dict = {
+    "max_tool_calls": 12,
+    "max_tokens":     200_000,
+    "num_ctx":         32_768,
+}
+
+
+def get_agent_budget(model: str) -> dict:
+    """Return the agent-mode budget for a model. Falls back to defaults
+    for unknown models."""
+    return AGENT_BUDGETS_BY_MODEL.get(model, AGENT_BUDGETS_DEFAULT)
+
+
+def resolve_model(token: str) -> str | None:
+    """Map a bot shorthand model token to a canonical Ollama model id.
+
+    Returns None if no alias matches and the token doesn't look like a
+    raw model id (no colon). If the token contains a colon (e.g.
+    "gpt-oss:20b"), returns it verbatim — assumed to already be canonical.
+    """
+    if not token:
+        return None
+    if ":" in token:
+        return token  # already canonical, e.g. "qwen3:32b"
+    return MODEL_ALIASES.get(token.lower())
+
+
+def resolve_mode(token: str) -> str | None:
+    """Map a bot shorthand mode token to a canonical mode name."""
+    if not token:
+        return None
+    return MODE_ALIASES.get(token.lower())
 
 def get_provider():
     """Resolve provider from CLI args or env."""

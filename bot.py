@@ -13,7 +13,7 @@ import sqlite3
 import socket
 import subprocess
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -27,6 +27,13 @@ from telegram import (
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ContextTypes,
     CallbackQueryHandler, filters,
+)
+
+# Project config — model/mode aliases + per-model agent budgets.
+sys.path.insert(0, str(Path(__file__).parent))
+from config import (
+    resolve_model, resolve_mode, get_agent_budget,
+    AGENT_BUDGETS_BY_MODEL,
 )
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
@@ -251,16 +258,20 @@ def ticker_inline_keyboard(action, columns=4):
 async def cmd_start(update, ctx):
     msg = (
         "📊 Trading Dashboard bot.\n\n"
-        "Use the keyboard below for quick commands, or type:\n"
-        "/last TICKER, /trace TICKER, /run TICKER, /add TICKER, /remove TICKER\n\n"
-        "Modes:\n"
-        "• /runagent — agent (autonomous tool-calling loop, Ollama only)\n"
-        "• /run — core (3-call adversarial panel, default)\n"
-        "• /runsolo — solo (single fast call)\n"
-        "• /runfull — full (TradingAgents 7-agent graph)\n\n"
+        "<b>Shorthand</b> (just type a ticker, optionally with model+mode):\n"
+        "• <code>nvda</code> — show today's analysis if any, else pick model/mode\n"
+        "• <code>nvda agent</code> — pick model, then run agent\n"
+        "• <code>nvda qwen</code> — pick mode, then run on qwen 122B\n"
+        "• <code>nvda qwen agent</code> — fire immediately\n"
+        "Order doesn't matter; case doesn't matter.\n\n"
+        "<b>Models</b>: qwen · gpt · gemma · llama · deepseek (more aliases inside)\n"
+        "<b>Modes</b>: agent · core · solo · full\n\n"
+        "<b>Commands</b>:\n"
+        "/last TICKER, /trace TICKER, /run TICKER, /add TICKER, /remove TICKER\n"
+        "/runagent /run /runsolo /runfull · /status /queue /kill\n\n"
         "Tap a command with no arguments to pick a ticker from a list."
     )
-    await update.message.reply_text(msg, reply_markup=main_keyboard())
+    await update.message.reply_text(msg, reply_markup=main_keyboard(), parse_mode="HTML")
 
 
 @auth_required
@@ -431,8 +442,14 @@ async def cmd_runagent(update, ctx):
     await _start_run(ctx.bot, update.effective_chat.id, [t.upper() for t in ctx.args], "agent")
 
 
-async def _start_run(bot, chat_id, tickers, mode):
-    """mode: 'solo' | 'core' | 'full' | 'agent'"""
+async def _start_run(bot, chat_id, tickers, mode, model=None):
+    """mode: 'solo' | 'core' | 'full' | 'agent'.
+
+    model: optional Ollama model id (e.g. "qwen3.5:122b"). When None,
+    runner.py uses the project default (config.OLLAMA_MODEL). When set,
+    we also pull the matching per-model agent budget from config and
+    pass --max-tool-calls / --max-tokens / --num-ctx accordingly.
+    """
     s = get_status()
     if s.get("status") == "running":
         await bot.send_message(
@@ -453,24 +470,34 @@ async def _start_run(bot, chat_id, tickers, mode):
             )
             return
 
+    model_note = f" on <code>{model}</code>" if model else ""
     await bot.send_message(
         chat_id=chat_id,
         text=(
-            f"🚀 Starting <b>{mode}</b> analysis for {', '.join(tickers)}...\n"
+            f"🚀 Starting <b>{mode}</b> analysis for {', '.join(tickers)}{model_note}...\n"
             f"You'll get the full analysis when each ticker completes."
         ),
         parse_mode="HTML",
     )
 
-    cmd = [str(PYTHON), str(RUNNER), "--tickers"] + tickers
+    cmd = [str(PYTHON), str(RUNNER), "--tickers", ",".join(tickers)]
+    if model:
+        cmd.extend(["--model", model])
     if mode == "full":
         cmd.append("--full")
     elif mode == "solo":
         cmd.append("--solo")
     elif mode == "agent":
-        # Agent budgets match the dashboard modal's defaults — leaves
-        # headroom for both the tool-call sequence and a clean wrap-up.
-        cmd.extend(["--agent", "--max-tool-calls", "12", "--max-tokens", "200000"])
+        # Per-model agent budget — picks max_tool_calls / max_tokens /
+        # num_ctx tuned to fit each model's natural context (so Ollama
+        # doesn't reload between runs).
+        budget = get_agent_budget(model) if model else get_agent_budget("")
+        cmd.extend([
+            "--agent",
+            "--max-tool-calls", str(budget["max_tool_calls"]),
+            "--max-tokens",     str(budget["max_tokens"]),
+            "--num-ctx",        str(budget["num_ctx"]),
+        ])
     # core needs no flag, it's the default
 
     log_path = os.path.expanduser("~/.tradingagents/bot_run.log")
@@ -481,6 +508,229 @@ async def _start_run(bot, chat_id, tickers, mode):
         )
 
     asyncio.create_task(_watch_and_notify(proc, tickers, mode, chat_id, bot))
+
+
+# ── Natural-language handler + cascade ──────────────────────────────────────
+# Tokens the user types: a ticker (uppercase 1-6 letters), optionally a
+# model alias and/or a mode keyword. Order-independent. Examples:
+#   "nvda"             → look up today's run, cascade if missing
+#   "nvda agent"       → cascade for model, then fire (skip lookup)
+#   "nvda qwen"        → cascade for mode, then fire
+#   "nvda qwen agent"  → fire immediately
+_TICKER_RE = re.compile(r"^[A-Z]{1,6}(?:\.[A-Z]{1,3})?$")
+
+
+def _parse_msg(text: str) -> tuple[str | None, str | None, str | None]:
+    """Tokenize a user message and resolve (ticker, model, mode).
+
+    Returns (None, None, None) if no ticker is identifiable.
+    """
+    # Split on whitespace and common separators; drop empties.
+    tokens = [t for t in re.split(r"[\s,;/|]+", text.strip()) if t]
+    ticker: str | None = None
+    model: str | None = None
+    mode: str | None = None
+    for raw in tokens:
+        if not raw:
+            continue
+        # Try resolve as mode first (cheap exact-match lookup)
+        m = resolve_mode(raw)
+        if m and mode is None:
+            mode = m
+            continue
+        # Try resolve as model (handles "qwen", "gpt-oss:20b" etc.)
+        mod = resolve_model(raw)
+        if mod and model is None:
+            model = mod
+            continue
+        # Anything left that looks like a ticker
+        up = raw.upper()
+        if ticker is None and _TICKER_RE.match(up):
+            ticker = up
+    return ticker, model, mode
+
+
+def get_today_latest(ticker: str) -> dict | None:
+    """Latest run for `ticker` with run_date == today, or None."""
+    today_str = date.today().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM runs WHERE ticker=? AND run_date=? "
+        "ORDER BY id DESC LIMIT 1",
+        (ticker, today_str),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+# Unique canonical model ids ordered by recommended pick. The cascade
+# picker shows these as buttons in 2 columns.
+_CASCADE_MODELS: list[tuple[str, str]] = [
+    ("qwen3.5:122b",   "qwen 122B"),
+    ("gpt-oss:120b",   "gpt-oss 120B"),
+    ("qwen3.6:35b",    "qwen 35B"),
+    ("qwen3:32b",      "qwen 32B"),
+    ("llama3.3:70b",   "llama 70B"),
+    ("deepseek-r1:32b","deepseek-r1 32B"),
+    ("gemma4:31b",     "gemma 31B"),
+    ("gemma4:26b",     "gemma 26B"),
+    ("gpt-oss:20b",    "gpt-oss 20B"),
+]
+
+_CASCADE_MODES: list[tuple[str, str]] = [
+    ("agent", "agent"),
+    ("core",  "core"),
+    ("solo",  "solo"),
+    ("full",  "full"),
+]
+
+
+def _cascade_cb(ticker: str, model: str | None, mode: str | None) -> str:
+    """Encode cascade state into a callback_data string.
+
+    Format: cas|<ticker>|<model_or_->|<mode_or_->
+    Length stays under Telegram's 64-byte limit for realistic inputs.
+    """
+    return f"cas|{ticker}|{model or '-'}|{mode or '-'}"
+
+
+def _model_keyboard(ticker: str, mode: str | None) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for model_id, label in _CASCADE_MODELS:
+        row.append(InlineKeyboardButton(
+            label, callback_data=_cascade_cb(ticker, model_id, mode),
+        ))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("✖ Cancel", callback_data="cancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _mode_keyboard(ticker: str, model: str | None) -> InlineKeyboardMarkup:
+    row = [
+        InlineKeyboardButton(label, callback_data=_cascade_cb(ticker, model, mode_id))
+        for mode_id, label in _CASCADE_MODES
+    ]
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("✖ Cancel", callback_data="cancel")]])
+
+
+def _save_prompt_cb(choice: str, ticker: str, model: str | None, mode: str | None) -> str:
+    """Encode the save-prompt decision into callback_data.
+
+    choice: 'y' (save & run), 'n' (run only). Cancel uses the generic
+    'cancel' callback already handled at the top of on_button.
+    """
+    return f"save|{choice}|{ticker}|{model or '-'}|{mode or '-'}"
+
+
+async def _maybe_prompt_save_and_run(bot, chat_id, ticker, mode, model=None):
+    """Prompt to save the ticker if it's not in tickers.txt; else just run.
+
+    This is the chokepoint between all "we're about to fire a run" paths
+    (direct fire from cmd_text, end of cascade) and the actual subprocess
+    launch. Centralizing the gate here means all new-ticker analyses go
+    through the same Save/Run/Cancel decision without each caller needing
+    to remember.
+    """
+    tracked = set(get_tickers_list())
+    if ticker.upper() in tracked:
+        await _start_run(bot, chat_id, [ticker], mode, model=model)
+        return
+
+    # Build a small "details" line so the user can confirm what they're
+    # about to fire on top of the save decision.
+    details = f"<code>{model or 'default'}</code> · <b>{mode}</b>"
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "💾 Save & Run",
+                callback_data=_save_prompt_cb("y", ticker, model, mode),
+            ),
+            InlineKeyboardButton(
+                "Run Only",
+                callback_data=_save_prompt_cb("n", ticker, model, mode),
+            ),
+        ],
+        [InlineKeyboardButton("✖ Cancel", callback_data="cancel")],
+    ])
+    await bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"⚠️ <b>{ticker}</b> isn't in your tracked list yet "
+            f"({details}).\n\nAdd it before running?"
+        ),
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+async def _next_cascade_step(bot, chat_id, ticker, model, mode):
+    """Dispatch the next cascade step: show picker, or fire."""
+    if model and mode:
+        await _maybe_prompt_save_and_run(bot, chat_id, ticker, mode, model=model)
+        return
+    if model and not mode:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"Pick a mode for <b>{ticker}</b> on <code>{model}</code>:",
+            parse_mode="HTML",
+            reply_markup=_mode_keyboard(ticker, model),
+        )
+        return
+    # Either both missing, or only mode set — show model picker either way.
+    title = (
+        f"Pick a model for <b>{ticker}</b> · <code>{mode}</code>:"
+        if mode else
+        f"📊 No analysis today for <b>{ticker}</b>.\nPick a model:"
+    )
+    await bot.send_message(
+        chat_id=chat_id,
+        text=title,
+        parse_mode="HTML",
+        reply_markup=_model_keyboard(ticker, mode),
+    )
+
+
+@auth_required
+async def cmd_text(update, ctx):
+    """Free-text handler. Parses 'nvda [model] [mode]' shorthand."""
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+    ticker, model, mode = _parse_msg(text)
+    if not ticker:
+        await update.message.reply_text(
+            "I didn't see a ticker in that. Try `nvda`, `nvda agent`, or "
+            "`nvda qwen agent`. Send /start for help.",
+        )
+        return
+
+    chat_id = update.effective_chat.id
+
+    # Fully specified → fire (the busy-guard inside _start_run rejects
+    # if another job is already in flight). _maybe_prompt_save_and_run
+    # interjects a Save/Run/Cancel prompt if the ticker isn't yet tracked.
+    if model and mode:
+        await _maybe_prompt_save_and_run(ctx.bot, chat_id, ticker, mode, model=model)
+        return
+
+    # Partial qualifier(s) → cascade the missing piece(s), no lookup.
+    if model or mode:
+        await _next_cascade_step(ctx.bot, chat_id, ticker, model, mode)
+        return
+
+    # Bare ticker → lookup today's run first. Fall through to cascade
+    # only if nothing today.
+    row = get_today_latest(ticker)
+    if row:
+        await _send_last_to_chat(ctx.bot, chat_id, ticker)
+        return
+    await _next_cascade_step(ctx.bot, chat_id, ticker, None, None)
 
 
 async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
@@ -556,6 +806,54 @@ async def on_button(update, ctx):
         await query.edit_message_text("Cancelled.")
         return
 
+    # Save-prompt callbacks: user chose Save & Run / Run Only.
+    # Format: save|<y|n>|<ticker>|<model_or_->|<mode_or_->
+    if data.startswith("save|"):
+        parts = data.split("|", 4)
+        if len(parts) != 5:
+            return
+        _, choice, ticker, model_field, mode_field = parts
+        model = None if model_field == "-" else model_field
+        mode = None if mode_field == "-" else mode_field
+
+        if choice == "y":
+            existing = set(get_tickers_list())
+            if ticker.upper() not in existing:
+                save_tickers_list(list(existing | {ticker.upper()}))
+            await query.edit_message_text(
+                f"💾 Saved <b>{ticker}</b> to your tracked list. Starting run...",
+                parse_mode="HTML",
+            )
+        else:
+            await query.edit_message_text(
+                f"⏭ Running <b>{ticker}</b> (not saved).",
+                parse_mode="HTML",
+            )
+        await _start_run(ctx.bot, chat_id, [ticker], mode, model=model)
+        return
+
+    # Cascade callbacks use "|" as field delimiter because canonical model
+    # ids contain colons (e.g. "qwen3.5:122b") which would clash with the
+    # legacy "action:payload" colon-split.
+    if data.startswith("cas|"):
+        parts = data.split("|", 3)
+        if len(parts) != 4:
+            return
+        _, ticker, model_field, mode_field = parts
+        model = None if model_field == "-" else model_field
+        mode = None if mode_field == "-" else mode_field
+        if model and mode:
+            await query.edit_message_text(
+                f"🚀 {ticker} · <code>{model}</code> · <b>{mode}</b>...",
+                parse_mode="HTML",
+            )
+            await _start_run(ctx.bot, chat_id, [ticker], mode, model=model)
+        else:
+            # Still missing a piece — replace the current picker with the next.
+            await query.delete_message()
+            await _next_cascade_step(ctx.bot, chat_id, ticker, model, mode)
+        return
+
     if ":" not in data:
         return
 
@@ -610,6 +908,11 @@ def main():
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("kill", cmd_kill))
     app.add_handler(CallbackQueryHandler(on_button))
+    # Free-text shorthand handler — MUST come before the COMMAND catch-all
+    # below; otherwise text that doesn't start with "/" gets matched by
+    # COMMAND first. (filters.TEXT excludes commands, so the order would
+    # technically be safe either way — but explicit is better.)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_text))
     app.add_handler(MessageHandler(filters.COMMAND, cmd_unknown))
 
     app.run_polling()
