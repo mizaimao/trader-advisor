@@ -294,7 +294,12 @@ def _fmt_server_diagnostics(server: dict, proc_info: dict | None, status: dict) 
             size_vram = m.get("size_vram") or 0
             gb = size_vram / (1024 ** 3)
             exp = _fmt_expires_at(m.get("expires_at"))
-            lines.append(f"     • <code>{name}</code> — {gb:.1f} GB · expires in {exp}")
+            ctx_len = m.get("context_length")
+            ctx_part = f" · ctx {ctx_len // 1024}K" if isinstance(ctx_len, int) and ctx_len else ""
+            lines.append(
+                f"     • <code>{name}</code> — {gb:.1f} GB"
+                f"{ctx_part} · expires in {exp}"
+            )
     else:
         lines.append("  📦 No models loaded")
 
