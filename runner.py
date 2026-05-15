@@ -271,12 +271,19 @@ def _make_llm(provider, model=None, mode=None):
         # so we can save both. _normalize_content concatenates them.
         "reasoning": True,
     }
-    # CLI --num-ctx (if provided) wins over the per-mode dict default.
+    # num_ctx semantics: FLOOR, not exact size. If Ollama already has the
+    # model loaded with context_length >= our floor, omit num_ctx so the
+    # currently-loaded model gets reused (no 30-60s reload). Otherwise
+    # send the floor and let Ollama load/reload with that size.
     num_ctx = _resolve_num_ctx()
     if num_ctx is None and mode:
         num_ctx = OLLAMA_NUM_CTX_BY_MODE.get(mode)
     if num_ctx is not None:
-        kwargs["num_ctx"] = num_ctx
+        from agent.loop import _loaded_context_for
+        loaded_ctx = _loaded_context_for(base_url, kwargs["model"])
+        if loaded_ctx is None or loaded_ctx < num_ctx:
+            kwargs["num_ctx"] = num_ctx
+        # else: model is already loaded with enough context — skip num_ctx
     return ChatOllama(**kwargs)
 
 

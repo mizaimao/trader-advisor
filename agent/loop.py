@@ -437,14 +437,19 @@ def run_agent(
         - run_metadata: {trace, tokens, tool_calls_used, max_tool_calls,
                          forced_final}
     """
-    # Resolve effective num_ctx: explicit param wins, else fall back to
-    # the module-level OLLAMA_OPTIONS["num_ctx"] (which comes from the
-    # config per-mode dict). Build a per-call options dict so concurrent
-    # calls with different ctx sizes don't stomp the module constant.
-    effective_options = {
-        **OLLAMA_OPTIONS,
-        "num_ctx": num_ctx if num_ctx is not None else OLLAMA_OPTIONS["num_ctx"],
-    }
+    # Resolve effective num_ctx as a FLOOR, not an exact size.
+    # Logic: if Ollama already has this model loaded with context_length >=
+    # our floor, omit num_ctx from the request so Ollama keeps the loaded
+    # model (avoids the 30-60s reload cost on big models). Otherwise send
+    # the floor — Ollama loads (or reloads) with that context size.
+    ctx_floor = num_ctx if num_ctx is not None else OLLAMA_OPTIONS["num_ctx"]
+    loaded_ctx = _loaded_context_for(base_url, model)
+    effective_options = {**OLLAMA_OPTIONS}
+    if loaded_ctx is not None and loaded_ctx >= ctx_floor:
+        # Currently loaded with at least our floor — let Ollama keep it.
+        effective_options.pop("num_ctx", None)
+    else:
+        effective_options["num_ctx"] = ctx_floor
 
     # Filter the tool registry per dashboard's data-source toggles. Always-on
     # sources (price, indicators, fundamentals) are unaffected.
