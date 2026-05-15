@@ -36,6 +36,7 @@ from config import (
     AGENT_BUDGETS_BY_MODEL,
     STUCK_THRESHOLD_SECONDS,
 )
+from db import set_status as _set_run_status
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -95,6 +96,39 @@ def split_message(text, limit=TELEGRAM_MSG_LIMIT):
 
     total = len(chunks)
     return [f"<i>({i+1}/{total})</i>\n{chunk}" for i, chunk in enumerate(chunks)]
+
+
+def _is_pid_alive(pid) -> bool:
+    """True if `pid` is a live process. False if missing or unparseable.
+
+    Used to detect stale 'running' status: when the runner crashes or is
+    SIGKILLed without writing 'idle' back to the status JSON, both /kill
+    and the busy-guard get stuck. This check lets us auto-heal.
+    """
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)  # signal 0 = existence probe only
+        return True
+    except (ProcessLookupError, ValueError, TypeError):
+        return False
+    except PermissionError:
+        # Process exists but we can't signal it (different user). Treat as alive.
+        return True
+
+
+def _clear_stale_status_if_dead(status: dict) -> bool:
+    """If status says 'running' but the PID is dead, write 'idle' to the
+    status file and return True. Otherwise return False.
+
+    Both /kill and _start_run call this to recover from the stuck state.
+    """
+    if status.get("status") != "running":
+        return False
+    if _is_pid_alive(status.get("pid")):
+        return False
+    _set_run_status("idle")
+    return True
 
 
 def check_ollama_alive(timeout=2):
@@ -405,7 +439,7 @@ def fmt_run_summary(row):
 # ── KEYBOARDS ────────────────────────────────────────────────────────────────
 def main_keyboard():
     rows = [
-        [KeyboardButton("/status"), KeyboardButton("/queue")],
+        [KeyboardButton("/status"), KeyboardButton("/server"), KeyboardButton("/queue")],
         [KeyboardButton("/list"), KeyboardButton("/last"), KeyboardButton("/trace")],
         [KeyboardButton("/runagent"), KeyboardButton("/run")],
         [KeyboardButton("/runsolo"), KeyboardButton("/runfull")],
@@ -624,11 +658,25 @@ async def _start_run(bot, chat_id, tickers, mode, model=None):
     """
     s = get_status()
     if s.get("status") == "running":
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"⚠️ A job is already running ({s.get('current')}). Use /kill first."
-        )
-        return
+        # Auto-heal: if status is "running" but the PID is dead, the
+        # previous runner crashed without writing "idle" back. Clear it
+        # and proceed.
+        if _clear_stale_status_if_dead(s):
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"♻️ Previous run on <b>{s.get('current') or '?'}</b> "
+                    f"died without cleanup. Cleared stale status; "
+                    f"continuing with this new run."
+                ),
+                parse_mode="HTML",
+            )
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=f"⚠️ A job is already running ({s.get('current')}). Use /kill first."
+            )
+            return
 
     provider = os.getenv("LLM_PROVIDER", "ollama")
     if provider == "ollama":
@@ -679,7 +727,14 @@ async def _start_run(bot, chat_id, tickers, mode, model=None):
             stdout=logf, stderr=subprocess.STDOUT,
         )
 
-    asyncio.create_task(_watch_and_notify(proc, tickers, mode, chat_id, bot))
+    # Snapshot the current max(id) so the watcher can detect "no new row
+    # was written" — that's how we catch silent runner failures (full mode
+    # without TradingAgents, model-not-loaded errors, etc.) before falsely
+    # rendering a stale historical row as if it were today's result.
+    pre_max_id = _max_run_id()
+    asyncio.create_task(
+        _watch_and_notify(proc, tickers, mode, chat_id, bot, pre_max_id, log_path)
+    )
 
 
 # ── Natural-language handler + cascade ──────────────────────────────────────
@@ -942,7 +997,45 @@ def _stuck_verdict(server: dict, proc_info: dict | None) -> str:
     return "Ambiguous — diagnostics above. Your call."
 
 
-async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
+def _max_run_id() -> int:
+    """Highest id in the runs table right now. Used as a 'before' snapshot
+    so the watcher can tell whether the run actually wrote a new row."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute("SELECT COALESCE(MAX(id), 0) FROM runs").fetchone()
+        return int(row[0]) if row else 0
+    except sqlite3.Error:
+        return 0
+    finally:
+        conn.close()
+
+
+def _get_new_row_for_ticker(ticker: str, since_id: int, mode: str | None = None) -> dict | None:
+    """Return the newest row for `ticker` (optionally filtered by mode) with
+    id > since_id. None if no new row appeared — that's the signal that the
+    runner crashed/errored without saving."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        if mode:
+            row = conn.execute(
+                "SELECT * FROM runs WHERE ticker=? AND mode=? AND id>? "
+                "ORDER BY id DESC LIMIT 1",
+                (ticker, mode, since_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM runs WHERE ticker=? AND id>? "
+                "ORDER BY id DESC LIMIT 1",
+                (ticker, since_id),
+            ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot,
+                            pre_max_id: int = 0, log_path: str | None = None):
     """Wait for runner subprocess to finish, then send the full analysis for
     each ticker.
 
@@ -1009,14 +1102,57 @@ async def _watch_and_notify(proc, tickers, mode_label, chat_id, bot):
         )
         return
 
+    # Per-ticker dispatch: check whether THIS run actually wrote a new row
+    # for each ticker. The runner sometimes exits 0 even when it skipped a
+    # ticker due to an internal error (full mode without TradingAgents, a
+    # provider/model error, etc.). Sending the latest historical row in
+    # that case would be misleading.
+    silent_failures: list[str] = []
+    for ticker in tickers:
+        new_row = _get_new_row_for_ticker(ticker, pre_max_id, mode=mode_label)
+        if new_row is None:
+            silent_failures.append(ticker)
+            continue
+        # Send using the row we know is new — bypass _send_last_to_chat's
+        # blind get-latest-by-mode behavior.
+        header = fmt_run_summary(new_row)
+        analysis = new_row.get("analysis") or "(no analysis text)"
+        analysis_html = md_to_html(analysis)
+        full_text = f"{header}\n\n{'─' * 30}\n\n{analysis_html}"
+        for chunk in split_message(full_text):
+            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+
+    if silent_failures:
+        # At least one ticker silently dropped — tell the user, with a tail
+        # of the runner log so they can see why.
+        tail_lines: list[str] = []
+        if log_path and os.path.exists(log_path):
+            try:
+                with open(log_path) as f:
+                    tail_lines = f.readlines()[-20:]
+            except OSError:
+                tail_lines = []
+        log_html = (
+            "<pre>" + _html.escape("".join(tail_lines)) + "</pre>"
+            if tail_lines else "(log unavailable)"
+        )
+        await bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"⚠️ <b>{', '.join(silent_failures)}</b> — the runner exited "
+                f"cleanly but didn't save a new <code>{mode_label}</code> "
+                f"row. Likely a per-ticker error inside the runner. Last 20 "
+                f"log lines:\n\n{log_html}"
+            ),
+            parse_mode="HTML",
+        )
+        return  # don't claim "✅ Run complete" if anything silently dropped
+
     await bot.send_message(
         chat_id=chat_id,
         text="✅ <b>Run complete.</b>",
         parse_mode="HTML",
     )
-
-    for ticker in tickers:
-        await _send_last_to_chat(bot, chat_id, ticker, mode=mode_label)
 
 
 @auth_required
@@ -1048,14 +1184,27 @@ async def cmd_server(update, ctx):
 async def cmd_kill(update, ctx):
     s = get_status()
     pid = s.get("pid")
-    if not pid:
+    if not pid or s.get("status") != "running":
         await update.message.reply_text("No running job to kill.")
+        return
+    # If the PID is already dead, just clear the stale "running" status —
+    # otherwise the bot stays stuck refusing new runs.
+    if not _is_pid_alive(pid):
+        _set_run_status("idle")
+        await update.message.reply_text(
+            f"♻️ PID {pid} was already dead. Cleared stale status — you can "
+            f"start a new run now."
+        )
         return
     try:
         os.kill(pid, 15)
         await update.message.reply_text(f"☠️ Sent kill signal to PID {pid}.")
     except ProcessLookupError:
-        await update.message.reply_text(f"PID {pid} not found (already dead?).")
+        # Race condition: died between alive-check and kill. Clear status.
+        _set_run_status("idle")
+        await update.message.reply_text(
+            f"PID {pid} died just now. Cleared stale status."
+        )
     except Exception as e:
         await update.message.reply_text(f"Kill failed: {e}")
 
