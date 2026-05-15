@@ -39,8 +39,10 @@ OLLAMA_NUM_CTX_BY_MODE = {
 # each casual fragment to the canonical Ollama model id. Aliases are
 # matched case-insensitively. Multiple aliases may resolve to the same model.
 MODEL_ALIASES: dict[str, str] = {
-    # qwen family
-    "qwen":         "qwen3.5:122b",
+    # qwen family. Bare "qwen" defaults to qwen3.6:35b — frontier-class on
+    # reasoning tasks while staying fast enough for daily-driver agent runs.
+    # The 122B is reachable via "qwen122" / "qwen3.5" for premium runs.
+    "qwen":         "qwen3.6:35b",
     "qwen122":      "qwen3.5:122b",
     "qwen3.5":      "qwen3.5:122b",
     "qwen32":       "qwen3:32b",

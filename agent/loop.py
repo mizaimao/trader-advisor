@@ -163,6 +163,37 @@ def _strip_v1(base_url: str) -> str:
     return u
 
 
+def _loaded_context_for(
+    base_url: str, model: str, timeout: float = 1.5,
+) -> int | None:
+    """Probe Ollama's /api/ps for the loaded context_length of `model`.
+
+    Returns the int context_length, or None if:
+      - the model isn't currently loaded
+      - /api/ps doesn't expose context_length for this model
+      - the probe fails (network, timeout, malformed response)
+
+    Callers should interpret None as "no preference detectable — go ahead
+    and force your configured num_ctx". When the returned int is >= your
+    floor, you can omit num_ctx from the request to avoid an unnecessary
+    Ollama reload.
+    """
+    url = f"{_strip_v1(base_url)}/api/ps"
+    try:
+        r = requests.get(url, timeout=timeout)
+        if not r.ok:
+            return None
+        for m in r.json().get("models", []) or []:
+            if m.get("name") == model:
+                ctx = m.get("context_length")
+                if isinstance(ctx, int) and ctx > 0:
+                    return ctx
+                return None
+    except Exception:
+        pass
+    return None
+
+
 def _ollama_chat(
     *,
     base_url: str,
