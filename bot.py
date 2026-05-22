@@ -444,7 +444,7 @@ def fmt_run_summary(row):
 # ── KEYBOARDS ────────────────────────────────────────────────────────────────
 def main_keyboard():
     rows = [
-        [KeyboardButton("/status"), KeyboardButton("/server"), KeyboardButton("/queue")],
+        [KeyboardButton("/status"), KeyboardButton("/queue")],
         [KeyboardButton("/list"), KeyboardButton("/last"), KeyboardButton("/trace")],
         [KeyboardButton("/runagent"), KeyboardButton("/run")],
         [KeyboardButton("/runsolo"), KeyboardButton("/runfull")],
@@ -487,23 +487,31 @@ async def cmd_start(update, ctx):
 
 @auth_required
 async def cmd_status(update, ctx):
-    s = get_status()
-    if s.get("status") == "idle":
-        await update.message.reply_text("💤 Idle. No job running.")
-        return
+    """Combined server diagnostics + active-run progress.
 
-    current = s.get("current", "?")
-    tickers = s.get("tickers", [])
-    completed = s.get("completed", 0)
-    total = len(tickers)
-    mode = s.get("mode", "?")
-    msg = (
-        f"⚙️ Running [{mode.upper()}]\n"
-        f"Current: {current}\n"
-        f"Progress: {completed}/{total}\n"
-        f"Queue: {', '.join(tickers)}"
-    )
-    await update.message.reply_text(msg)
+    Was originally just "is a job running" — merged with /server so a single
+    button on the keyboard surfaces everything you'd want to glance at:
+    Ollama reachability, loaded models with context size, current ticker,
+    proc state, and (when running multi-ticker) the queue.
+    """
+    status = get_status()
+    server = check_server_status()
+    proc_info = check_runner_proc(status.get("pid"))
+    text = _fmt_server_diagnostics(server, proc_info, status)
+
+    # When running a multi-ticker batch, append the queue lines so the user
+    # can see which tickers are done / pending. Single-ticker runs already
+    # have all the info they need from the "Active run" line above.
+    if status.get("status") == "running":
+        tickers = status.get("tickers") or []
+        completed = status.get("completed", 0)
+        if len(tickers) > 1:
+            text += f"\n\n📋 Queue ({completed}/{len(tickers)}):\n"
+            for i, t in enumerate(tickers):
+                prefix = "✅" if i < completed else ("⏳" if i == completed else "⏸")
+                text += f"  {prefix} {t}\n"
+
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 @auth_required
@@ -1175,14 +1183,10 @@ async def cmd_queue(update, ctx):
     await update.message.reply_text(msg)
 
 
-@auth_required
-async def cmd_server(update, ctx):
-    """Probe the Ollama server + show any active run's process state."""
-    status = get_status()
-    server = check_server_status()
-    proc_info = check_runner_proc(status.get("pid"))
-    text = _fmt_server_diagnostics(server, proc_info, status)
-    await update.message.reply_text(text, parse_mode="HTML")
+# /server kept as an alias for /status — same output. The two used to be
+# separate but they overlap enough that one button + two command names is
+# the right trade.
+cmd_server = cmd_status
 
 
 @auth_required

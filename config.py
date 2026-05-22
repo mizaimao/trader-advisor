@@ -22,8 +22,8 @@ GEMINI_MODEL = "gemini-flash-latest"
 # Full mode is omitted: TradingAgents manages its own LLM clients and falls
 # back to the Ollama server's OLLAMA_CONTEXT_LENGTH default.
 OLLAMA_NUM_CTX_BY_MODE = {
-    "solo":  16_384,
-    "core":  32_768,
+    "solo":  32_768,
+    "core":  65_536,
     # Agent's tool-call loop accumulates ALL prior tool results in the
     # conversation; 21 tool calls × ~3K each + thinking traces can blow
     # past 60K. Setting 128K so a long-running multi-tool agent doesn't
@@ -39,16 +39,18 @@ OLLAMA_NUM_CTX_BY_MODE = {
 # each casual fragment to the canonical Ollama model id. Aliases are
 # matched case-insensitively. Multiple aliases may resolve to the same model.
 MODEL_ALIASES: dict[str, str] = {
-    # qwen family. Bare "qwen" defaults to qwen3.6:35b — frontier-class on
-    # reasoning tasks while staying fast enough for daily-driver agent runs.
-    # The 122B is reachable via "qwen122" / "qwen3.5" for premium runs.
-    "qwen":         "qwen3.6:35b",
+    # qwen family. Bare "qwen" defaults to qwen3.6:27b — newer/smaller
+    # variant of the 3.6 series, faster than 35b with comparable quality
+    # for daily-driver agent runs. The 35b is reachable via "qwen35"
+    # for back-to-back comparisons; the 122B is reachable via "qwen122".
+    "qwen":         "qwen3.6:27b",
+    "qwen27":       "qwen3.6:27b",
+    "qwen35":       "qwen3.6:35b",
+    "qwen3.6":      "qwen3.6:27b",
     "qwen122":      "qwen3.5:122b",
     "qwen3.5":      "qwen3.5:122b",
     "qwen32":       "qwen3:32b",
     "qwen3":        "qwen3:32b",
-    "qwen35":       "qwen3.6:35b",
-    "qwen3.6":      "qwen3.6:35b",
     # gpt-oss family
     "gpt":          "gpt-oss:120b",
     "gpt-oss":      "gpt-oss:120b",
@@ -88,6 +90,7 @@ AGENT_BUDGETS_BY_MODEL: dict[str, dict] = {
     "gpt-oss:120b":   {"max_tool_calls": 20, "max_tokens":   500_000, "num_ctx": 131_072},
     "gpt-oss:20b":    {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
     "qwen3.6:35b":    {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
+    "qwen3.6:27b":    {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
     "qwen3:32b":      {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
     "llama3.3:70b":   {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
     "deepseek-r1:32b":{"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
