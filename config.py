@@ -87,15 +87,15 @@ MODE_ALIASES: dict[str, str] = {
 # Fall back to AGENT_BUDGETS_DEFAULT for unknown models.
 AGENT_BUDGETS_BY_MODEL: dict[str, dict] = {
     "qwen3.5:122b":   {"max_tool_calls": 30, "max_tokens": 2_000_000, "num_ctx": 262_144},
-    "gpt-oss:120b":   {"max_tool_calls": 20, "max_tokens":   500_000, "num_ctx": 131_072},
-    "gpt-oss:20b":    {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
-    "qwen3.6:35b":    {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
-    "qwen3.6:27b":    {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
-    "qwen3:32b":      {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
-    "llama3.3:70b":   {"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
-    "deepseek-r1:32b":{"max_tool_calls": 15, "max_tokens":   300_000, "num_ctx":  65_536},
-    "gemma4:26b":     {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
-    "gemma4:31b":     {"max_tool_calls": 12, "max_tokens":   200_000, "num_ctx":  32_768},
+    "gpt-oss:120b":   {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "gpt-oss:20b":    {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "qwen3.6:35b":    {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "qwen3.6:27b":    {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "qwen3:32b":      {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "llama3.3:70b":   {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "deepseek-r1:32b":{"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "gemma4:26b":     {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
+    "gemma4:31b":     {"max_tool_calls": 30, "max_tokens": 1_000_000, "num_ctx": 131_072},
 }
 
 AGENT_BUDGETS_DEFAULT: dict = {
